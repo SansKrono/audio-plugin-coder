@@ -4,7 +4,7 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true)][string]$PluginName,
+    [Parameter(Mandatory = $true)][string]$PluginName,
     [switch]$NoInstall,
     [switch]$SkipTests,
     [switch]$Strict
@@ -29,7 +29,8 @@ if (Test-Path $StatusJson) {
         if ($state.ui_framework -eq "visage") {
             $UseVisage = $true
         }
-    } catch {
+    }
+    catch {
         Write-Warning "Could not read status.json; proceeding without framework hints."
     }
 }
@@ -48,7 +49,16 @@ if ($state.current_phase -ne "code_complete" -and -not $SkipTests) {
 # 1. Configure with error monitoring
 Write-Host "Configuring build..." -ForegroundColor Yellow
 $visageFlag = if ($UseVisage) { "-DAPC_ENABLE_VISAGE:BOOL=ON" } else { "" }
-$configureCommand = "cmake -S `"$RootPath`" -B `"$BuildDir`" -G `"Visual Studio 17 2022`" -A x64 --fresh $visageFlag"
+
+if ($IsMacOS) {
+    # macOS Configuration
+    $configureCommand = "cmake -S `"$RootPath`" -B `"$BuildDir`" -G `"Unix Makefiles`" -DCMAKE_BUILD_TYPE=Release --fresh $visageFlag"
+}
+else {
+    # Windows Configuration
+    $configureCommand = "cmake -S `"$RootPath`" -B `"$BuildDir`" -G `"Visual Studio 17 2022`" -A x64 --fresh $visageFlag"
+}
+
 $configResult = Invoke-MonitoredCommand -Command $configureCommand -ShowOutput -ThrowOnError
 
 if ($configResult.Errors.Count -gt 0) {
@@ -64,7 +74,8 @@ if ($configResult.Errors.Count -gt 0) {
 
 # 2. Build VST3 with error monitoring
 Write-Host "Compiling VST3..." -ForegroundColor Yellow
-$buildVst3Command = "cmake --build `"$BuildDir`" --config Release --target `"$($PluginName)_VST3`""
+$TargetName = $PluginName.ToLower()
+$buildVst3Command = "cmake --build `"$BuildDir`" --config Release --target `"$($TargetName)_VST3`""
 $vst3Result = Invoke-MonitoredCommand -Command $buildVst3Command -ShowOutput -ThrowOnError
 
 if ($vst3Result.Errors.Count -gt 0) {
@@ -88,7 +99,7 @@ if ($vst3Result.Errors.Count -gt 0) {
 
 # 3. Build Standalone with error monitoring
 Write-Host "Compiling Standalone..." -ForegroundColor Yellow
-$buildStandaloneCommand = "cmake --build `"$BuildDir`" --config Release --target `"$($PluginName)_Standalone`""
+$buildStandaloneCommand = "cmake --build `"$BuildDir`" --config Release --target `"$($TargetName)_Standalone`""
 $standaloneResult = Invoke-MonitoredCommand -Command $buildStandaloneCommand -ShowOutput -ThrowOnError
 
 if ($standaloneResult.Errors.Count -gt 0) {
@@ -123,11 +134,13 @@ if (-not $SkipTests) {
             Write-Host "PluginVal tests failed" -ForegroundColor Red
             if ($Strict) {
                 throw "PluginVal validation failed in strict mode"
-            } else {
+            }
+            else {
                 Write-Warning "PluginVal tests failed - proceeding with installation anyway"
             }
         }
-    } else {
+    }
+    else {
         Write-Warning "VST3 plugin not found for PluginVal testing"
     }
 }
@@ -137,12 +150,18 @@ if (-not $NoInstall) {
     Write-Host "Installing VST3..." -ForegroundColor Yellow
     $Vst = Get-ChildItem -Path "$BuildDir" -Recurse -Filter "$($PluginName).vst3" | Select-Object -First 1
     if ($Vst) {
-        $Dest = "C:\Program Files\Common Files\VST3\$($Vst.Name)"
+        if ($IsMacOS) {
+            $Dest = "$HOME/Library/Audio/Plug-Ins/VST3/$($Vst.Name)"
+        }
+        else {
+            $Dest = "C:\Program Files\Common Files\VST3\$($Vst.Name)"
+        }
         try {
             if (Test-Path $Dest) { Remove-Item -Path $Dest -Recurse -Force -ErrorAction SilentlyContinue }
             Copy-Item -Path $Vst.FullName -Destination $Dest -Recurse -Force
             Write-Host "INSTALLED VST3 to: $Dest" -ForegroundColor Green
-        } catch {
+        }
+        catch {
             Write-Warning "Access Denied. Run as Admin to install VST3."
         }
     }
@@ -159,10 +178,12 @@ if (-not $NoInstall) {
             try {
                 & "$PSScriptRoot\add-icon-to-exe.ps1" -ExePath $Exe.FullName -IconPath $IconPath
                 Write-Host "[OK] Icon embedded in executable" -ForegroundColor Green
-            } catch {
+            }
+            catch {
                 Write-Warning "Failed to add icon to executable: $_"
             }
-        } else {
+        }
+        else {
             Write-Host "No icon found at $IconPath - skipping icon embedding" -ForegroundColor Gray
         }
 
@@ -174,7 +195,7 @@ if (-not $NoInstall) {
 Update-PluginState -PluginPath "plugins/$PluginName" -Updates @{
     "validation.build_completed" = $true
     "validation.build_timestamp" = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
-    "validation.build_errors" = ($vst3Result.Errors + $standaloneResult.Errors).Count
+    "validation.build_errors"    = ($vst3Result.Errors + $standaloneResult.Errors).Count
 }
 
 Write-Host "Build process complete!" -ForegroundColor Green

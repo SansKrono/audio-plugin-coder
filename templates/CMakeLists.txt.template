@@ -36,91 +36,35 @@ message(STATUS "{PLUGIN_NAME}: WebView backend: ${WEBVIEW_BACKEND}")
 # ============================================
 # BINARY DATA (UI Resources)
 # ============================================
-# Uncomment and modify if using binary data for UI
-# juce_add_binary_data({PLUGIN_NAME}_Resources
-#     SOURCES
-#         Source/ui/public/index.html
-#     NAMESPACE {PLUGIN_NAME}_BinaryData
-# )
+# We create a zip file of the public folder to avoid file name collisions in BinaryData
+# and to match the C++ code's expectation of a zip file.
 
-# ============================================
-# PLUGIN DEFINITION
-# ============================================
-juce_add_plugin({PLUGIN_NAME}
-    # Company info
-    COMPANY_NAME "{COMPANY_NAME}"
-    PLUGIN_MANUFACTURER_CODE {MANUFACTURER_CODE}
-    PLUGIN_CODE {PLUGIN_CODE}
-    
-    # Formats (platform-specific)
-    FORMATS ${PLUGIN_FORMATS}
-    
-    # Product info
-    PRODUCT_NAME "{PLUGIN_NAME}"
-    
-    # WebView support
-    NEEDS_WEBVIEW2 ${NEEDS_WEBVIEW2}
-    
-    # VST3 categories (comma-separated)
-    VST3_CATEGORIES {VST3_CATEGORIES}
-    
-    # AU main type (macOS only)
-    AU_MAIN_TYPE ${AU_MAIN_TYPE}
-    
-    # LV2 URI (Linux only)
-    LV2URI ${LV2_URI}
-    
-    # Icon for standalone executable (optional)
-    # Uncomment and create Assets/icon.ico to add an icon
-    # ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.ico"
+set(WEB_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/Source/ui")
+set(WEB_UI_ZIP "${CMAKE_CURRENT_BINARY_DIR}/{PLUGIN_NAME}_WebUI.zip")
+
+# Create the zip file command
+add_custom_command(
+    OUTPUT ${WEB_UI_ZIP}
+    COMMAND ${CMAKE_COMMAND} -E tar "cf" "${WEB_UI_ZIP}" --format=zip "."
+    WORKING_DIRECTORY "${WEB_UI_ROOT}/public"
+    DEPENDS 
+        "${WEB_UI_ROOT}/public/index.html"
+        # Add other dependencies if known, or rely on directory timestamp if possible (CMake doesn't do dirs well)
+    COMMENT "Zipping Web UI assets..."
 )
 
-# ============================================
-# SOURCE FILES
-# ============================================
-target_sources({PLUGIN_NAME}
-    PRIVATE
-        Source/PluginProcessor.cpp
-        Source/PluginEditor.cpp
-        # Add additional source files here
+# Create a target for the zip file generation
+add_custom_target({PLUGIN_NAME}_WebUI_Zip DEPENDS ${WEB_UI_ZIP})
+
+# Embed the zip file
+juce_add_binary_data({PLUGIN_NAME}_WebUI
+    SOURCES
+        ${WEB_UI_ZIP}
 )
 
-# ============================================
-# INCLUDE DIRECTORIES
-# ============================================
-target_include_directories({PLUGIN_NAME}
-    PRIVATE
-        Source
-        # Add additional include paths here
-)
+# Ensure the zip is created before compiling the binary data
+add_dependencies({PLUGIN_NAME}_WebUI {PLUGIN_NAME}_WebUI_Zip)
 
-# ============================================
-# LINK LIBRARIES
-# ============================================
-target_link_libraries({PLUGIN_NAME}
-    PRIVATE
-        # Binary data (if used)
-        # {PLUGIN_NAME}_Resources
-        
-        # JUCE modules
-        juce::juce_audio_basics
-        juce::juce_audio_devices
-        juce::juce_audio_formats
-        juce::juce_audio_plugin_client
-        juce::juce_audio_processors
-        juce::juce_audio_utils
-        juce::juce_core
-        juce::juce_data_structures
-        juce::juce_dsp
-        juce::juce_events
-        juce::juce_graphics
-        juce::juce_gui_basics
-        juce::juce_gui_extra
-    PUBLIC
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
-        juce::juce_recommended_warning_flags
-)
 
 # ============================================
 # COMPILE DEFINITIONS (Platform-Specific)
@@ -156,6 +100,7 @@ if(UNIX AND NOT APPLE)
         PUBLIC
             JUCE_USE_CURL=0
             JUCE_JACK=1
+            JUCE_WEB_BROWSER=1
     )
 endif()
 

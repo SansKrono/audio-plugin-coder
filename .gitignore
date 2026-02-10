@@ -52,3 +52,11 @@ cloudwash_crash_log.txt
 # Backups
 _backups/
 dist/
+/build_verification/
+.idea/.gitignore
+.idea/audio-plugin-coder.iml
+.idea/editor.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/vcs.xml
+.idea/inspectionProfiles/Project_Default.xml

@@ -141,14 +141,26 @@ document.addEventListener("DOMContentLoaded", () => {
 ### Step 4: Configure CMakeLists.txt
 
 ```cmake
-# Embed web files into binary
-juce_add_binary_data(YourPlugin_WebUI
-    SOURCES
-        Source/ui/public/index.html
-        Source/ui/public/js/index.js
-        Source/ui/public/js/juce/index.js
-        Source/ui/public/js/juce/check_native_interop.js
+# Embed web files into binary by zipping them first
+# This prevents file name collisions in BinaryData and allows directory structure preservation
+set(WEB_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/Source/ui")
+set(WEB_UI_ZIP "${CMAKE_CURRENT_BINARY_DIR}/YourPlugin_WebUI.zip")
+
+add_custom_command(
+    OUTPUT ${WEB_UI_ZIP}
+    COMMAND ${CMAKE_COMMAND} -E tar "cf" "${WEB_UI_ZIP}" --format=zip "."
+    WORKING_DIRECTORY "${WEB_UI_ROOT}/public"
+    DEPENDS "${WEB_UI_ROOT}/public/index.html"
+    COMMENT "Zipping Web UI assets..."
 )
+
+add_custom_target(YourPlugin_WebUI_Zip DEPENDS ${WEB_UI_ZIP})
+
+juce_add_binary_data(YourPlugin_WebUI
+    SOURCES ${WEB_UI_ZIP}
+)
+
+add_dependencies(YourPlugin_WebUI YourPlugin_WebUI_Zip)
 
 # Plugin definition
 juce_add_plugin(YourPlugin
@@ -169,8 +181,19 @@ target_link_libraries(YourPlugin
 target_compile_definitions(YourPlugin
     PUBLIC
         JUCE_WEB_BROWSER=1
-        JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
 )
+
+if(WIN32)
+    target_compile_definitions(YourPlugin
+        PUBLIC
+            JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
+    )
+elseif(APPLE)
+     target_compile_definitions(YourPlugin
+        PUBLIC
+            JUCE_USE_CURL=0
+    )
+endif()
 ```
 
 ### Step 5: Create ParameterIDs.hpp
@@ -225,21 +248,32 @@ private:
 
 ```cpp
 #include "PluginEditor.h"
-#include "BinaryData.h"
+
+// Declare BinaryData namespace (created by CMake)
+namespace BinaryData {
+    extern const char* YourPlugin_WebUI_zip;
+    extern const int YourPlugin_WebUI_zipSize;
+}
 
 YourPluginEditor::YourPluginEditor(YourAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p)
 {
     setSize(600, 400);
 
-    // Create WebView with relay references
-    webView = std::make_unique<juce::WebBrowserComponent>(
-        juce::WebBrowserComponent::Options()
-            .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
-            .withWinWebView2Options(
+    // Create WebView options
+    juce::WebBrowserComponent::Options options;
+    options = options.withBackend(juce::WebBrowserComponent::Options::Backend::webview2);
+    
+    #if JUCE_WINDOWS
+    options = options.withWinWebView2Options(
                 juce::WebBrowserComponent::Options::WinWebView2{}
                     .withUserDataFolder(juce::File::getSpecialLocation(
-                        juce::File::SpecialLocationType::tempDirectory)))
+                        juce::File::SpecialLocationType::tempDirectory)));
+    #endif
+
+    // Create WebView with relay references
+    webView = std::make_unique<juce::WebBrowserComponent>(
+        options
             .withNativeIntegrationEnabled()
             .withOptionsFrom(gainRelay)
             .withOptionsFrom(frequencyRelay)
@@ -281,27 +315,58 @@ void YourPluginEditor::resized()
 
 std::optional<juce::WebBrowserComponent::Resource> YourPluginEditor::getResource(const juce::String& url)
 {
-    const auto urlToRetrieve = url == "/" ? juce::String{ "index.html" }
-                                          : url.fromFirstOccurrenceOf("/", false, false);
+    static std::unique_ptr<juce::MemoryInputStream> stream;
+    static std::unique_ptr<juce::ZipFile> zipFile;
 
-    // Try to find resource in BinaryData
-    for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
+    // Initial load of the zip file from BinaryData
+    if (zipFile == nullptr)
     {
-        const char* resourceName = BinaryData::namedResourceList[i];
-        const char* originalFilename = BinaryData::getNamedResourceOriginalFilename(resourceName);
-
-        if (originalFilename != nullptr && juce::String(originalFilename).endsWith(urlToRetrieve))
+        if (BinaryData::YourPlugin_WebUI_zipSize > 0)
         {
-            int dataSize = 0;
-            const char* data = BinaryData::getNamedResource(resourceName, dataSize);
+            stream = std::make_unique<juce::MemoryInputStream>(
+                BinaryData::YourPlugin_WebUI_zip,
+                static_cast<size_t>(BinaryData::YourPlugin_WebUI_zipSize),
+                false);
+            zipFile = std::make_unique<juce::ZipFile>(stream.get(), false);
+        }
+    }
 
-            if (data != nullptr && dataSize > 0)
+    if (zipFile == nullptr)
+        return std::nullopt;
+
+    // Resolve URL to entry name
+    // URL "/" -> "index.html"
+    // URL "/js/index.js" -> "js/index.js"
+    auto entryName = url == "/" ? juce::String("index.html") : url.fromFirstOccurrenceOf("/", false, false);
+    
+    // Find entry in zip
+    int index = zipFile->getIndexOfFileName(entryName);
+    
+    // Case-insensitive fallback if needed
+    if (index < 0)
+    {
+        for (int i = 0; i < zipFile->getNumEntries(); ++i)
+        {
+            if (zipFile->getEntry(i)->filename.equalsIgnoreCase(entryName))
             {
-                std::vector<std::byte> byteData((size_t)dataSize);
-                std::memcpy(byteData.data(), data, (size_t)dataSize);
-                auto mime = getMimeForExtension(getExtension(urlToRetrieve).toLowerCase());
-                return juce::WebBrowserComponent::Resource{ std::move(byteData), juce::String{ mime } };
+                index = i;
+                break;
             }
+        }
+    }
+
+    if (index >= 0)
+    {
+        auto* entry = zipFile->getEntry(index);
+        auto entryStream = std::unique_ptr<juce::InputStream>(zipFile->createStreamForEntry(*entry));
+        
+        if (entryStream != nullptr)
+        {
+             std::vector<std::byte> data((size_t)entryStream->getTotalLength());
+             entryStream->read(data.data(), (int)data.size());
+             
+             auto mime = getMimeForExtension(getExtension(entry->filename).toLowerCase());
+             return juce::WebBrowserComponent::Resource{ std::move(data), juce::String{ mime } };
         }
     }
 

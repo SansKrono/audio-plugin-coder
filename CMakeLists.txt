@@ -1,4 +1,11 @@
 cmake_minimum_required(VERSION 3.22)
+if(APPLE)
+    set(CMAKE_C_COMPILER "clang")
+    set(CMAKE_CXX_COMPILER "clang++")
+    set(CMAKE_OBJC_COMPILER "clang")
+    set(CMAKE_OBJCXX_COMPILER "clang++")
+endif()
+
 project(APC_System VERSION 1.0.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
