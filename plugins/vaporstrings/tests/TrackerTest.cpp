@@ -15,6 +15,7 @@
 #include "../Source/dsp/Envelope.h"
 #include "../Source/dsp/FxChain1.h"
 #include "../Source/dsp/FxChain2.h"
+#include "../Source/dsp/Modulation.h"
 
 #include <cmath>
 #include <cstdio>
@@ -762,6 +763,73 @@ int main (int argc, char** argv)
         float pk = 0; bool fin = true; for (float v : L) { pk = std::max (pk, std::abs (v)); fin &= std::isfinite (v); }
         std::snprintf (buf, sizeof buf, "10 s full-scale noise, fb 95%%, peak %.2f", pk);
         check ("echo stability", fin && pk < 2.0f, buf);
+    }
+
+    /* ---------------------------------------------------------------- modulation + VAPOR */
+    std::printf ("\n-- modulation / VAPOR --\n");
+    using LS = vs::Lfo::Shape;
+    auto lfoRun = [] (LS shape, float rate, bool sync, double bpm, double seconds)
+    {
+        vs::Lfo l; l.prepare (kSr); l.setShape (shape);
+        std::vector<float> v;
+        const int chunk = 32;
+        for (int s = 0; s < (int) (seconds * kSr); s += 512)
+        {
+            l.beginBlock (rate, sync, bpm, -1.0);
+            for (int c = 0; c < 512; c += chunk) { v.push_back (l.value()); l.advance (chunk); }
+        }
+        return v;
+    };
+    auto crossings = [] (const std::vector<float>& v) { int n = 0; for (size_t i = 1; i < v.size(); ++i) n += (v[i - 1] < 0) != (v[i] < 0); return n; };
+    {
+        const auto s = lfoRun (LS::Sine, 2.0f, false, 120.0, 1.0);
+        const float mx = *std::max_element (s.begin(), s.end()), mn = *std::min_element (s.begin(), s.end());
+        std::snprintf (buf, sizeof buf, "%d zero crossings in 1 s, range %.2f..%.2f", crossings (s), mn, mx);
+        check ("LFO sine 2 Hz", std::abs (crossings (s) - 4) <= 1 && mx > 0.99f && mn < -0.99f, buf);
+    }
+    {
+        const auto q = lfoRun (LS::Square, 3.0f, false, 120.0, 2.0);
+        double mean = 0; for (float v : q) mean += v; mean /= (double) q.size();
+        const auto sh = lfoRun (LS::SampleHold, 4.0f, false, 120.0, 2.0);
+        int steps = 0; for (size_t i = 1; i < sh.size(); ++i) steps += sh[i] != sh[i - 1];
+        std::snprintf (buf, sizeof buf, "square mean %+.3f, S&H %d steps in 2 s @4 Hz", mean, steps);
+        check ("LFO square / S&H", std::abs (mean) < 0.05 && std::abs (steps - 8) <= 1, buf);
+    }
+    {
+        const bool mapOk = vs::Lfo::syncedCyclesPerBeat (1.0f) == 1.0 && vs::Lfo::syncedCyclesPerBeat (2.0f) == 2.0
+                        && vs::Lfo::syncedCyclesPerBeat (0.5f) == 0.5 && vs::Lfo::syncedCyclesPerBeat (0.01f) == 1.0 / 16.0;
+        const auto s = lfoRun (LS::Sine, 1.0f, true, 120.0, 2.0);   // 1/4 notes at 120 BPM = 2 Hz
+        vs::Lfo l; l.prepare (kSr); l.setShape (LS::Sine); l.beginBlock (1.0f, true, 120.0, 3.25);
+        std::snprintf (buf, sizeof buf, "map %s, %d crossings in 2 s, ppq 3.25 → %.2f", mapOk ? "ok" : "BAD", crossings (s), l.value());
+        check ("LFO tempo sync", mapOk && std::abs (crossings (s) - 8) <= 1 && l.value() > 0.99f, buf);
+    }
+    {
+        vs::ModValues a; a.add (vs::ModDest::Volume, -1.0f, 1.0f);
+        vs::ModValues b; b.add (vs::ModDest::Volume, 1.0f, 1.0f);
+        vs::ModValues c; c.add (vs::ModDest::Volume, -1.0f, 0.5f);
+        vs::ModValues d; d.add (vs::ModDest::Cutoff, 1.0f, -0.5f); d.add (vs::ModDest::Cutoff, 1.0f, 1.0f);
+        std::snprintf (buf, sizeof buf, "vol %.2f / %.2f / %.2f, cutoff %+.1f oct", a.volume, b.volume, c.volume, d.cutoffOct);
+        check ("mod destinations", a.volume == 0.0f && b.volume == 1.0f && std::abs (c.volume - 0.5f) < 1e-6f && std::abs (d.cutoffOct - 2.0f) < 1e-6f, buf);
+    }
+    {
+        const auto z = vs::VaporMacro::from (0.0f), f = vs::VaporMacro::from (1.0f);
+        const bool neutral = z.hazeMix == 0 && z.wobWow == 0 && z.slowPitchSt == 0 && z.attackMul == 1 && z.synthGain == 1
+                          && z.directGain == 1 && z.swellBlend == 0 && ! z.engageHaze && ! z.engageWobble;
+        const bool full = std::abs (f.hazeMix - 0.5f) < 1e-6f && std::abs (f.slowPitchSt + 5.0f) < 1e-6f && std::abs (f.attackMul - 40.0f) < 1e-4f
+                       && f.engageHaze && f.engageWobble;
+        std::snprintf (buf, sizeof buf, "0 → neutral %s, 1 → haze +%.2f, slow %.0f st, attack ×%.0f", neutral ? "yes" : "NO", f.hazeMix, f.slowPitchSt, f.attackMul);
+        check ("VAPOR macro mapping", neutral && full, buf);
+    }
+    {
+        vs::VoiceEnvelope e; e.prepare (kSr); e.setParams (vs::VoiceEnvelope::Mode::Follow, 400.0f, 300.0f, 0.8f, 400.0f);
+        e.setSwellBlend (1.0f);
+        e.noteOn (1.0f, 0.3f);
+        float at200 = 0;
+        for (int i = 1; i <= (int) (0.2 * kSr); ++i) { e.tick (0.3f, true); at200 = e.level(); }
+        vs::VoiceEnvelope n; n.prepare (kSr); n.setParams (vs::VoiceEnvelope::Mode::Follow, 400.0f, 300.0f, 0.8f, 400.0f);
+        n.noteOn (1.0f, 0.3f); for (int i = 0; i < 100; ++i) n.tick (0.3f, true);
+        std::snprintf (buf, sizeof buf, "VAPOR swell 200 ms %.2f, no VAPOR %.2f", at200, n.level());
+        check ("Follow + VAPOR swell", std::abs (at200 - 0.5f) < 0.05f && n.level() > 0.99f, buf);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED", failures, failures == 1 ? "" : "s");

@@ -12,6 +12,7 @@
 #include "dsp/Envelope.h"
 #include "dsp/FxChain1.h"
 #include "dsp/FxChain2.h"
+#include "dsp/Modulation.h"
 
 //==============================================================================
 /** Live values the editor streams to the WebView (written on the audio thread,
@@ -158,6 +159,13 @@ private:
     std::atomic<float>* pEchoDiv = nullptr; std::atomic<float>* pEchoFb = nullptr;   std::atomic<float>* pEchoTone = nullptr;
     std::atomic<float>* pEchoMix = nullptr;
     double hostBpm = 120.0;
+
+    // Modulation (phase 2.1.8): LFO 1/2 at control rate (kFilterChunk) + VAPOR macro
+    std::array<vs::Lfo, 2> lfos;
+    std::array<std::atomic<float>*, 2> pLfoShape {}, pLfoRate {}, pLfoSync {}, pLfoDest {}, pLfoAmt {};
+    std::atomic<float>* pVapor = nullptr;
+    std::vector<vs::ModValues> modChunks;     // one entry per kFilterChunk samples
+    float volMod = 1.0f, volModCoef = 0.99f;  // tremolo, de-zippered per sample
 
     // Smoothed controls
     juce::SmoothedValue<float> inGainSm, directSm, outGainSm, dryWetSm, widthSm;

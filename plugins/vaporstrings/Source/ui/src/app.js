@@ -24,9 +24,18 @@
   }
 
   /* ---------------------------------------------------------------- formatting */
+  /* synced LFO rate → note value (mirrors vs::Lfo::syncedCyclesPerBeat) */
+  function syncedDivision(rateHz) {
+    var c = Math.pow(2, Math.round(Math.log2(clamp(rateHz, 1 / 16, 8))));
+    var whole = 1 / (4 * c);                 // fraction of a whole note per cycle
+    return whole >= 1 ? whole + "/1" : "1/" + Math.round(1 / whole);
+  }
+
   function fmt(id, v) {
     var d = META[id];
     if (!d) return String(v);
+    var m = /^lfo([12])_rate$/.exec(id);
+    if (m && params["lfo" + m[1] + "_sync"] && params["lfo" + m[1] + "_sync"].get()) return syncedDivision(v);
     if (d.type === "choice") return d.choices[Math.round(v)] || "";
     if (d.type === "bool") return v ? "ON" : "OFF";
     switch (d.fmt) {
@@ -178,6 +187,8 @@
     }, { passive: false });
 
     p.onChange(draw);
+    var syncId = id.replace(/_rate$/, "_sync");
+    if (/^lfo[12]_rate$/.test(id) && params[syncId]) params[syncId].onChange(function () { if (showing) showValue(true); });
     draw();
   }
 
@@ -253,6 +264,8 @@
       var on;
       if (view === "fx-mod") on = Math.abs(params.lfo1_amt.get()) > 0.001 || Math.abs(params.lfo2_amt.get()) > 0.001;
       else on = !!params[TAB_POWER[view]].get();
+      // VAPOR engages Haze + Wobble above 2 % (vs::VaporMacro) — show it on the tabs
+      if ((view === "fx-haze" || view === "fx-wob") && params.vapor.get() > 0.02) on = true;
       t.classList.toggle("is-on", on);
       t.classList.toggle("is-frozen", view === "fx-haze" && on && !!params.haze_freeze.get());
     });
@@ -260,7 +273,7 @@
   $all(".vs-tab").forEach(function (t) {
     t.addEventListener("click", function () { selectFx(t.getAttribute("data-tab")); });
   });
-  ["slow_on", "drive_on", "ens_on", "wob_on", "haze_on", "echo_on", "haze_freeze", "lfo1_amt", "lfo2_amt"]
+  ["slow_on", "drive_on", "ens_on", "wob_on", "haze_on", "echo_on", "haze_freeze", "lfo1_amt", "lfo2_amt", "vapor"]
     .forEach(function (id) { params[id].onChange(refreshTabLeds); });
 
   /* ---------------------------------------------------------------- presets */

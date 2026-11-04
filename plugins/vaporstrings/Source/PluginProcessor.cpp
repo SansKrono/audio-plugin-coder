@@ -105,6 +105,13 @@ VaporStringsAudioProcessor::VaporStringsAudioProcessor()
     pEchoDiv = P (ParameterIDs::echo_div); pEchoFb = P (ParameterIDs::echo_fb);        pEchoTone = P (ParameterIDs::echo_tone);
     pEchoMix = P (ParameterIDs::echo_mix);
 
+    pLfoShape = { P (ParameterIDs::lfo1_shape), P (ParameterIDs::lfo2_shape) };
+    pLfoRate  = { P (ParameterIDs::lfo1_rate),  P (ParameterIDs::lfo2_rate) };
+    pLfoSync  = { P (ParameterIDs::lfo1_sync),  P (ParameterIDs::lfo2_sync) };
+    pLfoDest  = { P (ParameterIDs::lfo1_dest),  P (ParameterIDs::lfo2_dest) };
+    pLfoAmt   = { P (ParameterIDs::lfo1_amt),   P (ParameterIDs::lfo2_amt) };
+    pVapor    = P (ParameterIDs::vapor);
+
     jassert (apvts.state.isValid());
     jassert (getParameters().size() == ParamTable::numParams);
 }
@@ -177,6 +184,11 @@ void VaporStringsAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     fxEns.prepare (sampleRate);   bpEns.prepare (sampleRate);
     fxWob.prepare (sampleRate);   bpWob.prepare (sampleRate);
 
+    for (auto& l : lfos) l.prepare (sampleRate);
+    modChunks.assign ((size_t) (samplesPerBlock / kFilterChunk + 2), {});
+    volMod = 1.0f;
+    volModCoef = coef (2.0f);
+
     fxHaze.prepare (sampleRate);  hazeActive = false;
     fxEcho.prepare (sampleRate);  echoActive = false;
     for (auto* s : { &hazeMix, &hazeOnS, &echoMix, &echoOnS })
@@ -219,13 +231,48 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         wetBuf .setSize (2, numSamples, false, false, true);
         envBuf .setSize (1, numSamples, false, false, true);
     }
+    const int numChunks = (numSamples + kFilterChunk - 1) / kFilterChunk;
+    if ((int) modChunks.size() < numChunks)
+        modChunks.resize ((size_t) numChunks);    // only if the host exceeds the prepared size
+
+    // ---- host tempo / position (LFO sync, Echo sync) ------------------------------
+    double ppq = -1.0;
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+        {
+            if (auto bpm = pos->getBpm()) hostBpm = *bpm;
+            if (pos->getIsPlaying())
+                if (auto p = pos->getPpqPosition()) ppq = *p;
+        }
+
+    // ---- modulation at control rate: LFO 1/2 → per-chunk destination offsets -------
+    for (int k = 0; k < 2; ++k)
+    {
+        lfos[(size_t) k].setShape ((vs::Lfo::Shape) juce::jlimit (0, 4, (int) pLfoShape[(size_t) k]->load()));
+        lfos[(size_t) k].beginBlock (pLfoRate[(size_t) k]->load(), pLfoSync[(size_t) k]->load() > 0.5f, hostBpm, ppq);
+    }
+    for (int c = 0; c < numChunks; ++c)
+    {
+        auto& mv = modChunks[(size_t) c];
+        mv.clear();
+        const int len = juce::jmin (kFilterChunk, numSamples - c * kFilterChunk);
+        for (int k = 0; k < 2; ++k)
+        {
+            mv.add ((vs::ModDest) juce::jlimit (0, 5, (int) pLfoDest[(size_t) k]->load()),
+                    lfos[(size_t) k].value(), pLfoAmt[(size_t) k]->load());
+            lfos[(size_t) k].advance (len);
+        }
+    }
+
+    // ---- VAPOR macro (offsets on top of the parameters; parameters are never written)
+    const auto vapor = vs::VaporMacro::from (pVapor->load());
 
     const int numIn  = juce::jmin (getTotalNumInputChannels(), buffer.getNumChannels());
     const int numOut = buffer.getNumChannels();
 
     // ---- read parameters (once per block) --------------------------------------
     inGainSm .setTargetValue (juce::Decibels::decibelsToGain (pInGain->load()));
-    directSm .setTargetValue (levelDbToGain (pDirectLvl->load()));
+    directSm .setTargetValue (levelDbToGain (pDirectLvl->load()) * vapor.directGain);
     outGainSm.setTargetValue (juce::Decibels::decibelsToGain (pOutGain->load()));
     dryWetSm .setTargetValue (juce::jlimit (0.0f, 1.0f, pDryWet->load()));
     widthSm  .setTargetValue (juce::jlimit (0.0f, 2.0f, pWidth->load()));
@@ -260,7 +307,7 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         sp.glideMs = pGlide->load();
         synth.setParams (sp);
     }
-    synthLvlSm.setTargetValue (levelDbToGain (pSynthLvl->load()));
+    synthLvlSm.setTargetValue (levelDbToGain (pSynthLvl->load()) * vapor.synthGain);
 
     // ---- octave layer + square-up settings ------------------------------------------------
     squareUp.setAmount (pDirectSq->load());
@@ -274,7 +321,8 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const bool freeRun = freeOn || freeMixSm.isSmoothing();
     // ---- voice settings ----------------------------------------------------------------
     voiceEnv.setParams ((vs::VoiceEnvelope::Mode) juce::jlimit (0, 2, (int) pEnvMode->load()),
-                        pAtk->load(), pDec->load(), pSus->load(), pRel->load());
+                        juce::jmin (5000.0f, pAtk->load() * vapor.attackMul), pDec->load(), pSus->load(), pRel->load());
+    voiceEnv.setSwellBlend (vapor.swellBlend);
     if (const int ft = juce::jlimit (0, 3, (int) pFltType->load()); ft != lastFltType)
     {
         using M = juce::dsp::LadderFilterMode;
@@ -310,8 +358,19 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     auto* wetL = wetBuf.getWritePointer (0);
     auto* wetR = wetBuf.getWritePointer (1);
 
+    float pitchRatio = 1.0f, volTarget = 1.0f;
+
     for (int i = 0; i < numSamples; ++i)
     {
+        if ((i % kFilterChunk) == 0)                  // control-rate modulation tick
+        {
+            const auto& mv = modChunks[(size_t) (i / kFilterChunk)];
+            pitchRatio = std::exp2 (mv.pitchSt / 12.0f);
+            synth.setPulseWidthOffset (mv.pwm);
+            volTarget = mv.volume;
+        }
+        volMod = volTarget + volModCoef * (volMod - volTarget);
+
         const float x = mono[i] * inGainSm.getNextValue();
 
         // dry path, delayed to line up with the oversampled square-up on source A
@@ -368,11 +427,11 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         confGain = confTarget + confCoef * (confGain - confTarget);
         const float synthAmp = envLevel * confGain * synthLvlSm.getNextValue();
         float sl = 0.0f, sr = 0.0f;
-        synth.tick (tracker.getHz(), synthAmp, sl, sr);
+        synth.tick (tracker.getHz() * pitchRatio, synthAmp, sl, sr);
 
         const float ab = (direct + octave) * contour;
-        wetL[i] = ab + sl;
-        wetR[i] = ab + sr;
+        wetL[i] = (ab + sl) * volMod;
+        wetR[i] = (ab + sr) * volMod;
     }
 
     // ---- Synth Voice filter: ladder on the mixed sources, cutoff modulated every
@@ -383,7 +442,7 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         float e = 0.0f;
         for (int k = 0; k < len; ++k) e += envLvl[start + k];
         e /= (float) len;
-        const float hz = std::exp2 (cutoffOct + envAmt * e * 6.0f);
+        const float hz = std::exp2 (cutoffOct + envAmt * e * 6.0f + modChunks[(size_t) (start / kFilterChunk)].cutoffOct);
         ladder.setCutoffFrequencyHz (juce::jlimit (20.0f, (float) (0.45 * getSampleRate()), hz));
         juce::dsp::AudioBlock<float> blk (wetBuf);
         auto sub = blk.getSubBlock ((size_t) start, (size_t) len);
@@ -391,30 +450,31 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // ---- FX chain I (fixed order, each with a 10 ms bypass crossfade) -------------
-    fxSlow.setParams (pSlowPitch->load(), pSlowDrift->load());
-    fxDrive.setParams ((vs::Drive::Mode) juce::jlimit (0, 3, (int) pDriveMode->load()), pDriveAmt->load(), pDriveTone->load());
-    fxEns.setParams ((vs::Ensemble::Mode) juce::jlimit (0, 2, (int) pEnsMode->load()), pEnsRate->load(), pEnsDepth->load(), pEnsMix->load());
-    fxWob.setParams (pWobWow->load(), pWobFlutter->load(), pWobAge->load(), pWobDrop->load());
+    // block-rate destinations take the LFO value at the start of the block
+    const auto& mod0 = modChunks[0];
+    const bool slowOn = pSlowOn->load() > 0.5f;
 
-    vs::runInsert (bpSlow,  pSlowOn->load()  > 0.5f, fxSlow,  wetL, wetR, numSamples);
-    vs::runInsert (bpDrive, pDriveOn->load() > 0.5f, fxDrive, wetL, wetR, numSamples);
-    vs::runInsert (bpEns,   pEnsOn->load()   > 0.5f, fxEns,   wetL, wetR, numSamples);
-    vs::runInsert (bpWob,   pWobOn->load()   > 0.5f, fxWob,   wetL, wetR, numSamples);
+    fxSlow.setParams (pSlowPitch->load() + (slowOn ? vapor.slowPitchSt : 0.0f), pSlowDrift->load());
+    fxDrive.setParams ((vs::Drive::Mode) juce::jlimit (0, 3, (int) pDriveMode->load()), pDriveAmt->load(), pDriveTone->load());
+    fxEns.setParams ((vs::Ensemble::Mode) juce::jlimit (0, 2, (int) pEnsMode->load()), pEnsRate->load(),
+                     pEnsDepth->load() + vapor.ensDepth + mod0.ensDepth, pEnsMix->load());
+    fxWob.setParams (pWobWow->load() + vapor.wobWow, pWobFlutter->load(), pWobAge->load() + vapor.wobAge, pWobDrop->load());
+
+    vs::runInsert (bpSlow,  slowOn,                                         fxSlow,  wetL, wetR, numSamples);
+    vs::runInsert (bpDrive, pDriveOn->load() > 0.5f,                        fxDrive, wetL, wetR, numSamples);
+    vs::runInsert (bpEns,   pEnsOn->load()   > 0.5f,                        fxEns,   wetL, wetR, numSamples);
+    vs::runInsert (bpWob,   pWobOn->load()   > 0.5f || vapor.engageWobble,  fxWob,   wetL, wetR, numSamples);
 
     // ---- FX chain II: Haze → Echo (tails spill over when switched off) -------------
-    if (auto* ph = getPlayHead())
-        if (auto pos = ph->getPosition())
-            if (auto bpm = pos->getBpm())
-                hostBpm = *bpm;
-
     {
         vs::Haze::Params hp;
-        hp.size = pHazeSize->load();      hp.decayS = pHazeDecay->load();  hp.predelayMs = pHazePre->load();
+        hp.size = pHazeSize->load() + mod0.hazeSize;  hp.decayS = pHazeDecay->load();  hp.predelayMs = pHazePre->load();
         hp.mod = pHazeMod->load();        hp.damp = pHazeDamp->load();     hp.reverse = pHazeRev->load();
         hp.freeze = pHazeFrz->load() > 0.5f;
-        hp.on = pHazeOn->load() > 0.5f;
+        hp.on = pHazeOn->load() > 0.5f || vapor.engageHaze;
         fxHaze.setParams (hp);
-        vs::runSend (fxHaze, hp.on, pHazeMix->load(), hazeMix, hazeOnS, hazeActive, wetL, wetR, numSamples);
+        vs::runSend (fxHaze, hp.on, juce::jmin (1.0f, pHazeMix->load() + vapor.hazeMix),
+                     hazeMix, hazeOnS, hazeActive, wetL, wetR, numSamples);
     }
     {
         vs::Echo::Params ep;

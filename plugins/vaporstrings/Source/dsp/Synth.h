@@ -79,6 +79,9 @@ public:
         glideCoef = params.glideMs <= 0.5f ? 0.0f : std::exp (-1.0f / (0.001f * params.glideMs * (float) sr));
     }
 
+    /** LFO → PWM offset, applied on top of the pulse-width parameter (control rate). */
+    void setPulseWidthOffset (float off) noexcept { pwOffset = off; }
+
     /** One stereo sample. hz = tracked pitch (0 = nothing yet). amp = 0..1 gain. */
     void tick (float hz, float amp, float& outL, float& outR) noexcept
     {
@@ -155,7 +158,7 @@ private:
             case Wave::Pulse:
             case Wave::Triangle:
             {
-                const float pw = w == Wave::Pulse ? params.pulseWidth : 0.5f;
+                const float pw = w == Wave::Pulse ? std::clamp (params.pulseWidth + pwOffset, 0.05f, 0.95f) : 0.5f;
                 float q = p < pw ? 1.0f : -1.0f;
                 float p2 = p + (1.0f - pw);
                 p2 -= std::floor (p2);
@@ -204,7 +207,7 @@ private:
     std::array<std::array<float, kMaxUnison>, 2> ratio {};
     std::array<float, kMaxUnison> panL {}, panR {};
     float unisonGain = 1.0f, subRatio = 0.5f, subPhase = 0.0f;
-    float logHz = -1.0f, glideCoef = 0.0f;
+    float logHz = -1.0f, glideCoef = 0.0f, pwOffset = 0.0f;
 };
 
 } // namespace vs

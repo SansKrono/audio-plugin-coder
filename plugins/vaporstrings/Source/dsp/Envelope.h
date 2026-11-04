@@ -96,11 +96,17 @@ public:
 
         switch (mode)
         {
-            case Mode::Follow: contour = 1.0f;  out = follow * velocity;         break;
+            case Mode::Follow:
+                contour = 1.0f - swellBlend + swellBlend * bloom;
+                out = follow * velocity * contour;
+                break;
             case Mode::ADSR:   contour = adsr;  out = adsr * velocity;           break;
             case Mode::Swell:  contour = bloom; out = bloom * follow * velocity; break;
         }
     }
+
+    /** VAPOR: blends the swell bloom into Follow mode (0 = off, 1 = full bloom). */
+    void setSwellBlend (float b) noexcept { swellBlend = std::clamp (b, 0.0f, 1.0f); }
 
     float level() const noexcept { return out; }
     float shape() const noexcept { return contour; }
@@ -114,7 +120,7 @@ private:
     Stage stage = Stage::Idle;
     float attackStep = 0.01f, decayCoef = 0.999f, releaseCoef = 0.999f, sustainLvl = 0.8f;
     float adsr = 0.0f, ramp = 0.0f, pickPeak = 1.0e-4f, peakDecay = 0.9999f;
-    float velocity = 1.0f, out = 0.0f, contour = 1.0f;
+    float velocity = 1.0f, out = 0.0f, contour = 1.0f, swellBlend = 0.0f;
 };
 
 } // namespace vs
