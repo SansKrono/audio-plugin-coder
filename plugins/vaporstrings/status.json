@@ -5,7 +5,7 @@
   "ui_framework": "webview",
   "complexity_score": 4,
   "created_at": "2026-11-04T15:02:04.587678+11:00",
-  "last_modified": "2026-11-04T16:51:06.2370919+11:00",
+  "last_modified": "2026-11-04T16:57:13.4088363+11:00",
   "phase_history": [
     {
       "phase": "ideation",
@@ -42,11 +42,19 @@
     "ui_framework_selected": true,
     "design_complete": true,
     "code_complete": true,
-    "tests_passed": false,
+    "tests_passed": true,
     "ship_ready": false,
     "build_completed": true,
-    "build_timestamp": "2026-11-04T16:48:32Z",
-    "build_errors": 0
+    "build_timestamp": "2026-11-04T16:57:02Z",
+    "build_errors": 0,
+    "pluginval_results": {
+      "passed": true,
+      "last_run": "2026-11-04T16:57:02Z",
+      "failed": false,
+      "output_summary": "",
+      "duration_seconds": 7.030278999999999,
+      "categories": []
+    }
   },
   "framework_selection": {
     "decision": "webview",
@@ -59,7 +67,7 @@
     "clap_features": []
   },
   "error_recovery": {
-    "last_backup": "C:\\Users\\aaron\\Documents\\GitHub\\audio-plugin-coder\\plugins\\vaporstrings\\_state_backups\\status_backup_20261104_165106.json",
+    "last_backup": "C:\\Users\\aaron\\Documents\\GitHub\\audio-plugin-coder\\plugins\\vaporstrings\\_state_backups\\status_backup_20261104_165713.json",
     "rollback_available": true,
     "error_log": []
   },
@@ -67,5 +75,16 @@
     "ui_map": "Design/v1-ui-map.json",
     "sha256": "fac9f5cffa7510057c36211079e396782bf1efcf885b51ae999989804682ef23",
     "approved_at": "2026-11-04T15:15:20.0385182+11:00"
+  },
+  "test_results": {
+    "run_at": "2026-11-04T16:57:13.3983514+11:00",
+    "build": "pass (VST3 + Standalone, 0 warnings)",
+    "pluginval": "pass (strictness 5; 44.1/48/96/192 kHz; blocks 1-2048)",
+    "ui_contract": "pass (0 issues, 1 known px warning); geometry exact at 0.5x/1.25x/2.0x, no letterbox",
+    "ui_bindings": "82/82 controls bound and responsive",
+    "dsp_harness": "69/69 pass; worst-case CPU ~6-6.5% of one core @48k/128",
+    "fixed_during_test": "subtitle overflowed its 14-cell slot at every scale",
+    "manual_daw_check": "pending",
+    "vst3_installed": false
   }
 }
