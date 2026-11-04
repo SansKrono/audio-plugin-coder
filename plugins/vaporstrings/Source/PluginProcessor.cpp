@@ -79,6 +79,17 @@ VaporStringsAudioProcessor::VaporStringsAudioProcessor()
     pOctUp    = apvts.getRawParameterValue (ParameterIDs::oct_up);
     pOctShift = apvts.getRawParameterValue (ParameterIDs::oct_shift);
 
+    pFltType  = apvts.getRawParameterValue (ParameterIDs::flt_type);
+    pCutoff   = apvts.getRawParameterValue (ParameterIDs::flt_cutoff);
+    pRes      = apvts.getRawParameterValue (ParameterIDs::flt_res);
+    pFltDrv   = apvts.getRawParameterValue (ParameterIDs::flt_drive);
+    pEnvAmt   = apvts.getRawParameterValue (ParameterIDs::flt_env_amt);
+    pEnvMode  = apvts.getRawParameterValue (ParameterIDs::env_mode);
+    pAtk      = apvts.getRawParameterValue (ParameterIDs::env_attack);
+    pDec      = apvts.getRawParameterValue (ParameterIDs::env_decay);
+    pSus      = apvts.getRawParameterValue (ParameterIDs::env_sustain);
+    pRel      = apvts.getRawParameterValue (ParameterIDs::env_release);
+
     jassert (apvts.state.isValid());
     jassert (getParameters().size() == ParamTable::numParams);
 }
@@ -140,6 +151,12 @@ void VaporStringsAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     octUpSm  .setCurrentAndTargetValue (pOctUp->load());
     freeMixSm.setCurrentAndTargetValue (std::abs (pOctShift->load()) > 0.005f ? 1.0f : 0.0f);
 
+    voiceEnv.prepare (sampleRate);
+    envBuf.setSize (1, samplesPerBlock, false, true, false);
+    ladder.prepare ({ sampleRate, (juce::uint32) samplesPerBlock, 2 });
+    ladder.reset();
+    lastFltType = -1;
+
     gateDetector = gateGain = envState = 0.0f;
     gateOpen = false;
 
@@ -172,6 +189,7 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         monoBuf.setSize (1, numSamples, false, false, true);
         dryBuf .setSize (1, numSamples, false, false, true);
         wetBuf .setSize (2, numSamples, false, false, true);
+        envBuf .setSize (1, numSamples, false, false, true);
     }
 
     const int numIn  = juce::jmin (getTotalNumInputChannels(), buffer.getNumChannels());
@@ -226,6 +244,22 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     shiftFree.setRatio (std::exp2 (freeSt / 12.0f));
     freeMixSm.setTargetValue (freeOn ? 1.0f : 0.0f);
     const bool freeRun = freeOn || freeMixSm.isSmoothing();
+    // ---- voice settings ----------------------------------------------------------------
+    voiceEnv.setParams ((vs::VoiceEnvelope::Mode) juce::jlimit (0, 2, (int) pEnvMode->load()),
+                        pAtk->load(), pDec->load(), pSus->load(), pRel->load());
+    if (const int ft = juce::jlimit (0, 3, (int) pFltType->load()); ft != lastFltType)
+    {
+        using M = juce::dsp::LadderFilterMode;
+        static constexpr M modes[] = { M::LPF24, M::LPF12, M::BPF12, M::HPF12 };
+        ladder.setMode (modes[ft]);
+        lastFltType = ft;
+    }
+    ladder.setResonance (0.95f * juce::jlimit (0.0f, 1.0f, pRes->load()));
+    ladder.setDrive (1.0f + 9.0f * juce::jlimit (0.0f, 1.0f, pFltDrv->load()));
+    const float cutoffOct = std::log2 (juce::jlimit (20.0f, 20000.0f, pCutoff->load()));
+    const float envAmt = juce::jlimit (-1.0f, 1.0f, pEnvAmt->load());
+    auto* envLvl = envBuf.getWritePointer (0);
+
     constexpr int dryLatency = vs::SquareUp::getLatency();
     static_assert (dryLatency < 64, "dryDelay too short for the oversampler latency");
 
@@ -271,13 +305,21 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         // analysis path (control signals only; never touches the audio)
         tracker.push (x, gateOpen);
-        if (onset.push (x, openThresh))
-            noteVelocity = onset.getVelocity();
-
         // envelope follower
         const float ag = std::abs (gated);
         envState = ag > envState ? envAtkCoef * (envState - ag) + ag
                                  : envRelCoef * (envState - ag) + ag;
+
+        // pick onset → voice envelope (Follow / ADSR / Swell)
+        if (onset.push (x, openThresh))
+        {
+            noteVelocity = onset.getVelocity();
+            voiceEnv.noteOn (noteVelocity, envState);
+        }
+        voiceEnv.tick (envState, gateOpen);
+        const float envLevel = voiceEnv.level();
+        const float contour  = voiceEnv.shape();     // A/B gain: 1 in Follow, contour otherwise
+        envLvl[i] = envLevel;
 
         // [A] Direct source (mono, centred), optionally squared-up (2× oversampled)
         const float direct = squareUp.process (gated) * directSm.getNextValue();
@@ -290,16 +332,34 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const float octave = (octDownSm.getNextValue() * down + octUpSm.getNextValue() * up + free)
                            * octLvlSm.getNextValue();
 
-        // [C] Synth source. Until the Voice envelopes land (2.1.5) its level follows
-        // the guitar envelope, and fades out when tracking confidence is low (chords).
-        const float confTarget = gateOpen ? juce::jlimit (0.0f, 1.0f, (tracker.getConfidence() - 0.35f) / 0.3f) : 0.0f;
+        // [C] Synth source: fully gated by the voice envelope, and faded out when
+        // tracking confidence is low (chords) so wrong notes never sound.
+        // Confidence only fades while the gate is open; ADSR release tails keep playing.
+        const float confTarget = gateOpen ? juce::jlimit (0.0f, 1.0f, (tracker.getConfidence() - 0.35f) / 0.3f)
+                                          : confGain;
         confGain = confTarget + confCoef * (confGain - confTarget);
-        const float synthAmp = juce::jmin (1.0f, envState * 3.0f) * confGain * synthLvlSm.getNextValue();
+        const float synthAmp = envLevel * confGain * synthLvlSm.getNextValue();
         float sl = 0.0f, sr = 0.0f;
         synth.tick (tracker.getHz(), synthAmp, sl, sr);
 
-        wetL[i] = direct + octave + sl;
-        wetR[i] = direct + octave + sr;
+        const float ab = (direct + octave) * contour;
+        wetL[i] = ab + sl;
+        wetR[i] = ab + sr;
+    }
+
+    // ---- Synth Voice filter: ladder on the mixed sources, cutoff modulated every
+    //      kFilterChunk samples by the voice envelope (±6 octaves at full amount) ----
+    for (int start = 0; start < numSamples; start += kFilterChunk)
+    {
+        const int len = juce::jmin (kFilterChunk, numSamples - start);
+        float e = 0.0f;
+        for (int k = 0; k < len; ++k) e += envLvl[start + k];
+        e /= (float) len;
+        const float hz = std::exp2 (cutoffOct + envAmt * e * 6.0f);
+        ladder.setCutoffFrequencyHz (juce::jlimit (20.0f, (float) (0.45 * getSampleRate()), hz));
+        juce::dsp::AudioBlock<float> blk (wetBuf);
+        auto sub = blk.getSubBlock ((size_t) start, (size_t) len);
+        ladder.process (juce::dsp::ProcessContextReplacing<float> (sub));
     }
 
     // ---- output: dry/wet, gain, safety clip --------------------------------------
@@ -330,7 +390,7 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     VaporMeters::raise (meters.inPeak, inPk);
     VaporMeters::raise (meters.outPeak, outPk);
-    meters.env.store (envState, std::memory_order_relaxed);
+    meters.env.store (voiceEnv.level(), std::memory_order_relaxed);
     meters.gate.store (gateOpen, std::memory_order_relaxed);
     meters.noteHz.store (gateOpen ? tracker.getHz() : 0.0f, std::memory_order_relaxed);
     meters.conf.store (tracker.getConfidence(), std::memory_order_relaxed);

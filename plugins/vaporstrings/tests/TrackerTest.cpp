@@ -12,6 +12,7 @@
 #include "../Source/dsp/Analysis.h"
 #include "../Source/dsp/Synth.h"
 #include "../Source/dsp/Shifter.h"
+#include "../Source/dsp/Envelope.h"
 
 #include <cmath>
 #include <cstdio>
@@ -378,6 +379,82 @@ int main (int argc, char** argv)
         const auto r = run (out, g);
         std::snprintf (buf, sizeof buf, "inTune %d/%d, peak %.2f, crest %.1f→%.1f", r.inTune, r.voiced, pk, crestIn, crestOut);
         check ("square-up 100% on G3 pluck", finite && pk < 1.0f && r.inTune >= r.voiced * 0.95 && r.voiced > 0 && crestOut < crestIn, buf);
+    }
+
+    /* ---------------------------------------------------------------- voice envelope */
+    std::printf ("\n-- voice envelope --\n");
+    using EM = vs::VoiceEnvelope::Mode;
+    auto msToN = [] (double ms) { return (int) (ms * 0.001 * kSr); };
+
+    // ADSR: A=10 ms, D=200 ms, S=0.5, R=300 ms; gate closes at 500 ms
+    {
+        vs::VoiceEnvelope e; e.prepare (kSr); e.setParams (EM::ADSR, 10.0f, 200.0f, 0.5f, 300.0f);
+        e.noteOn (1.0f, 0.3f);
+        float at5 = 0, at10 = 0, at250 = 0, at499 = 0, at520 = 0, at800 = 0;
+        for (int i = 1; i <= msToN (900); ++i)
+        {
+            const bool gate = i < msToN (500);
+            e.tick (0.3f, gate);
+            if (i == msToN (5))   at5 = e.level();
+            if (i == msToN (10) + 2) at10 = e.level();
+            if (i == msToN (250)) at250 = e.level();
+            if (i == msToN (499)) at499 = e.level();
+            if (i == msToN (520)) at520 = e.level();
+            if (i == msToN (800)) at800 = e.level();
+        }
+        std::snprintf (buf, sizeof buf, "5ms %.2f 10ms %.2f 250ms %.2f 499ms %.2f 520ms %.2f 800ms %.3f", at5, at10, at250, at499, at520, at800);
+        check ("ADSR stages + release", std::abs (at5 - 0.5f) < 0.05f && at10 > 0.95f && std::abs (at250 - 0.5f) < 0.03f
+                                         && std::abs (at499 - 0.5f) < 0.01f && at520 < 0.5f && at520 > 0.1f && at800 < 0.001f, buf);
+    }
+
+    // velocity scales the level, contour (A/B gain) does not see velocity
+    {
+        vs::VoiceEnvelope e; e.prepare (kSr); e.setParams (EM::ADSR, 1.0f, 100.0f, 1.0f, 100.0f);
+        e.noteOn (0.5f, 0.3f);
+        for (int i = 0; i < msToN (50); ++i) e.tick (0.3f, true);
+        std::snprintf (buf, sizeof buf, "level %.2f, contour %.2f", e.level(), e.shape());
+        check ("velocity 0.5", std::abs (e.level() - 0.5f) < 0.02f && std::abs (e.shape() - 1.0f) < 0.02f, buf);
+    }
+
+    // Follow: tracks a decaying string relative to its pick peak; A/B contour stays 1
+    {
+        vs::VoiceEnvelope e; e.prepare (kSr); e.setParams (EM::Follow, 5.0f, 300.0f, 0.8f, 400.0f);
+        e.noteOn (1.0f, 0.4f);
+        float atStart = 0, atHalf = 0, contourMin = 1;
+        for (int i = 0; i < msToN (1000); ++i)
+        {
+            const float f = 0.4f * std::exp (-(float) i / (float) msToN (500));   // string decays
+            e.tick (f, true);
+            if (i == 10) atStart = e.level();
+            if (i == msToN (346)) atHalf = e.level();                              // e^-0.693 = 0.5
+            contourMin = std::min (contourMin, e.shape());
+        }
+        std::snprintf (buf, sizeof buf, "start %.2f, half-life %.2f, contour min %.2f", atStart, atHalf, contourMin);
+        check ("Follow normalised decay", atStart > 0.95f && std::abs (atHalf - 0.5f) < 0.05f && contourMin > 0.999f, buf);
+    }
+
+    // Swell: 400 ms bloom on a sustained note — ~50 % at 200 ms, full by 400 ms
+    {
+        vs::VoiceEnvelope e; e.prepare (kSr); e.setParams (EM::Swell, 400.0f, 300.0f, 0.8f, 400.0f);
+        e.noteOn (1.0f, 0.3f);
+        float at50 = 0, at200 = 0, at420 = 0;
+        for (int i = 1; i <= msToN (420); ++i)
+        {
+            e.tick (0.3f, true);
+            if (i == msToN (50))  at50 = e.level();
+            if (i == msToN (200)) at200 = e.level();
+            if (i == msToN (420)) at420 = e.level();
+        }
+        std::snprintf (buf, sizeof buf, "50ms %.2f 200ms %.2f 420ms %.2f, contour %.2f", at50, at200, at420, e.shape());
+        check ("Swell bloom", at50 < 0.1f && std::abs (at200 - 0.5f) < 0.05f && at420 > 0.99f && e.shape() > 0.99f, buf);
+    }
+
+    // ADSR without a pick: A/B are silent until the first note (documented behaviour)
+    {
+        vs::VoiceEnvelope e; e.prepare (kSr); e.setParams (EM::ADSR, 5.0f, 100.0f, 0.8f, 100.0f);
+        for (int i = 0; i < 1000; ++i) e.tick (0.3f, true);
+        std::snprintf (buf, sizeof buf, "level %.2f, contour %.2f", e.level(), e.shape());
+        check ("ADSR idle before first pick", e.level() == 0.0f && e.shape() == 0.0f, buf);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED", failures, failures == 1 ? "" : "s");

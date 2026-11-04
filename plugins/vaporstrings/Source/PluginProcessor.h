@@ -9,6 +9,7 @@
 #include "dsp/Analysis.h"
 #include "dsp/Synth.h"
 #include "dsp/Shifter.h"
+#include "dsp/Envelope.h"
 
 //==============================================================================
 /** Live values the editor streams to the WebView (written on the audio thread,
@@ -119,6 +120,18 @@ private:
     // delayed to match so Dry/Wet blends never comb-filter.
     std::array<float, 64> dryDelay {};
     int dryDelayPos = 0;
+
+    // Synth Voice (phase 2.1.5): envelope + ladder filter on the mixed sources
+    vs::VoiceEnvelope voiceEnv;
+    juce::dsp::LadderFilter<float> ladder;
+    std::atomic<float>* pFltType = nullptr;  std::atomic<float>* pCutoff  = nullptr;
+    std::atomic<float>* pRes     = nullptr;  std::atomic<float>* pFltDrv  = nullptr;
+    std::atomic<float>* pEnvAmt  = nullptr;  std::atomic<float>* pEnvMode = nullptr;
+    std::atomic<float>* pAtk     = nullptr;  std::atomic<float>* pDec     = nullptr;
+    std::atomic<float>* pSus     = nullptr;  std::atomic<float>* pRel     = nullptr;
+    juce::AudioBuffer<float> envBuf;          // per-sample envelope level for the filter
+    int lastFltType = -1;
+    static constexpr int kFilterChunk = 32;   // cutoff modulation rate (samples)
 
     // Smoothed controls
     juce::SmoothedValue<float> inGainSm, directSm, outGainSm, dryWetSm, widthSm;
