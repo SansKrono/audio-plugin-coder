@@ -11,6 +11,7 @@
 
 #include "../Source/dsp/Analysis.h"
 #include "../Source/dsp/Synth.h"
+#include "../Source/dsp/Shifter.h"
 
 #include <cmath>
 #include <cstdio>
@@ -301,6 +302,82 @@ int main (int argc, char** argv)
         const float at600 = s.getCurrentHz();
         std::snprintf (buf, sizeof buf, "30 ms: %.1f Hz, 600 ms: %.2f Hz", at30, at600);
         check ("glide 100 ms", at30 > 115.0f && at30 < 210.0f && std::abs (1200.0 * std::log2 (at600 / 220.0)) < 5.0, buf);
+    }
+
+    /* ---------------------------------------------------------------- octave layer + square-up */
+    std::printf ("\n-- octave layer / square-up --\n");
+    auto rms = [] (const std::vector<float>& v, size_t from = 0)
+    {
+        double s = 0; for (size_t i = from; i < v.size(); ++i) s += (double) v[i] * v[i];
+        return std::sqrt (s / (double) std::max<size_t> (1, v.size() - from));
+    };
+    {
+        double g3 = 196.0;
+        const auto src = pluck (196.0, 1.5, 0.4, 77, &g3);
+        const struct { float ratio; const char* name; } shifts[] = {
+            { 0.5f, "shift -12 st (G3→G2)" }, { 2.0f, "shift +12 st (G3→G4)" }, { std::exp2 (7.0f / 12.0f), "shift +7 st (G3→D4)" } };
+        for (const auto& s : shifts)
+        {
+            vs::PitchShifter ps; ps.prepare (kSr, 40.0f); ps.setRatio (s.ratio);
+            std::vector<float> out (src.size());
+            for (size_t i = 0; i < src.size(); ++i) out[i] = ps.process (src[i]);
+            const auto r = run (out, g3 * s.ratio);
+            const double lvl = 20.0 * std::log10 (rms (out, 4800) / rms (src, 4800));
+            std::snprintf (buf, sizeof buf, "inTune %d/%d, octErr %d, level %+.1f dB", r.inTune, r.voiced, r.octaveErr, lvl);
+            check (s.name, r.voiced > 0 && r.inTune >= r.voiced * 0.8 && r.octaveErr * 20 < r.voiced && std::abs (lvl) < 4.0, buf);
+        }
+    }
+
+    // oversampler round trip must be transparent (after its fixed latency)
+    {
+        vs::Oversampler2x os;
+        const int L = vs::Oversampler2x::getLatency();
+        double err = 0, ref = 0;
+        std::vector<float> in (48000);
+        for (size_t i = 0; i < in.size(); ++i) in[i] = 0.5f * (float) std::sin (2.0 * 3.14159265 * 1000.0 * (double) i / kSr);
+        for (size_t i = 0; i < in.size(); ++i)
+        {
+            float a, b; os.up (in[i], a, b);
+            const float y = os.down (a, b);
+            if (i > 1000) { const float d = y - in[i - (size_t) L]; err += d * d; ref += in[i] * in[i]; }
+        }
+        const double nullDb = 10.0 * std::log10 (err / ref + 1e-20);
+        std::snprintf (buf, sizeof buf, "latency %d smp, null %.1f dB", L, nullDb);
+        check ("2x oversampler round trip", nullDb < -60.0, buf);
+    }
+
+    // square-up at 0 is linear (only the oversampler latency)
+    {
+        // KS starts as white noise up to Nyquist; a DI has ~nothing above 16 kHz, and the
+        // half-band filter (correctly) removes that band — so band-limit the probe first.
+        double g = 196.0; auto src = pluck (196.0, 1.0, 0.4, 78, &g);
+        { vs::Biquad a, b; a.setLowPass (kSr, 16000.0, 0.5412); b.setLowPass (kSr, 16000.0, 1.3066);
+          for (auto& v : src) v = b.process (a.process (v)); }
+        vs::SquareUp sq; sq.reset(); sq.setAmount (0.0f);
+        const int L = vs::SquareUp::getLatency();
+        double err = 0, ref = 0;
+        for (size_t i = 0; i < src.size(); ++i)
+        {
+            const float y = sq.process (src[i]);
+            if (i > (size_t) L + 100) { const float d = y - src[i - (size_t) L]; err += d * d; ref += src[i] * src[i]; }
+        }
+        const double nullDb = 10.0 * std::log10 (err / ref + 1e-20);
+        std::snprintf (buf, sizeof buf, "null vs delayed input %.1f dB", nullDb);
+        check ("square-up 0% transparent", nullDb < -40.0, buf);
+    }
+
+    // square-up at 100%: pitch kept, peak bounded, crest factor collapses toward a square
+    {
+        double g = 196.0; const auto src = pluck (196.0, 1.5, 0.4, 79, &g);
+        vs::SquareUp sq; sq.reset(); sq.setAmount (1.0f);
+        std::vector<float> out (src.size());
+        float pk = 0; bool finite = true;
+        for (size_t i = 0; i < src.size(); ++i) { out[i] = sq.process (src[i]); pk = std::max (pk, std::abs (out[i])); finite &= std::isfinite (out[i]); }
+        float pkIn = 0; for (float v : src) pkIn = std::max (pkIn, std::abs (v));
+        const double crestIn = pkIn / rms (src, 4800), crestOut = pk / rms (out, 4800);
+        const auto r = run (out, g);
+        std::snprintf (buf, sizeof buf, "inTune %d/%d, peak %.2f, crest %.1f→%.1f", r.inTune, r.voiced, pk, crestIn, crestOut);
+        check ("square-up 100% on G3 pluck", finite && pk < 1.0f && r.inTune >= r.voiced * 0.95 && r.voiced > 0 && crestOut < crestIn, buf);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED", failures, failures == 1 ? "" : "s");

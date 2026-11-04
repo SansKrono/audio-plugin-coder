@@ -73,6 +73,12 @@ VaporStringsAudioProcessor::VaporStringsAudioProcessor()
     pSpread   = apvts.getRawParameterValue (ParameterIDs::unison_spread);
     pSubLvl   = apvts.getRawParameterValue (ParameterIDs::sub_lvl);
 
+    pDirectSq = apvts.getRawParameterValue (ParameterIDs::direct_square);
+    pOctLvl   = apvts.getRawParameterValue (ParameterIDs::src_oct_lvl);
+    pOctDown  = apvts.getRawParameterValue (ParameterIDs::oct_down);
+    pOctUp    = apvts.getRawParameterValue (ParameterIDs::oct_up);
+    pOctShift = apvts.getRawParameterValue (ParameterIDs::oct_shift);
+
     jassert (apvts.state.isValid());
     jassert (getParameters().size() == ParamTable::numParams);
 }
@@ -119,6 +125,20 @@ void VaporStringsAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     synthLvlSm.setCurrentAndTargetValue (levelDbToGain (pSynthLvl->load()));
     confGain = 0.0f;
     confCoef = coef (25.0f);
+
+    shiftDown.prepare (sampleRate, 40.0f);  shiftDown.setRatio (0.5f);
+    shiftUp  .prepare (sampleRate, 40.0f);  shiftUp  .setRatio (2.0f);
+    shiftFree.prepare (sampleRate, 40.0f);
+    squareUp.reset();
+    dryDelay.fill (0.0f);
+    dryDelayPos = 0;
+
+    for (auto* sm : { &octLvlSm, &octDownSm, &octUpSm, &freeMixSm })
+        sm->reset (sampleRate, 0.02);
+    octLvlSm .setCurrentAndTargetValue (levelDbToGain (pOctLvl->load()));
+    octDownSm.setCurrentAndTargetValue (pOctDown->load());
+    octUpSm  .setCurrentAndTargetValue (pOctUp->load());
+    freeMixSm.setCurrentAndTargetValue (std::abs (pOctShift->load()) > 0.005f ? 1.0f : 0.0f);
 
     gateDetector = gateGain = envState = 0.0f;
     gateOpen = false;
@@ -196,6 +216,19 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
     synthLvlSm.setTargetValue (levelDbToGain (pSynthLvl->load()));
 
+    // ---- octave layer + square-up settings ------------------------------------------------
+    squareUp.setAmount (pDirectSq->load());
+    octLvlSm .setTargetValue (levelDbToGain (pOctLvl->load()));
+    octDownSm.setTargetValue (pOctDown->load());
+    octUpSm  .setTargetValue (pOctUp->load());
+    const float freeSt = pOctShift->load();
+    const bool freeOn = std::abs (freeSt) > 0.005f;     // free shifter is skipped at 0 st
+    shiftFree.setRatio (std::exp2 (freeSt / 12.0f));
+    freeMixSm.setTargetValue (freeOn ? 1.0f : 0.0f);
+    const bool freeRun = freeOn || freeMixSm.isSmoothing();
+    constexpr int dryLatency = vs::SquareUp::getLatency();
+    static_assert (dryLatency < 64, "dryDelay too short for the oversampler latency");
+
     // ---- input: mono sum + input gain -------------------------------------------
     auto* mono = monoBuf.getWritePointer (0);
     auto* dry  = dryBuf.getWritePointer (0);
@@ -218,7 +251,11 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (int i = 0; i < numSamples; ++i)
     {
         const float x = mono[i] * inGainSm.getNextValue();
-        dry[i] = x;
+
+        // dry path, delayed to line up with the oversampled square-up on source A
+        dryDelay[(size_t) dryDelayPos] = x;
+        dry[i] = dryDelay[(size_t) ((dryDelayPos - dryLatency + 64) & 63)];
+        dryDelayPos = (dryDelayPos + 1) & 63;
         const float ax = std::abs (x);
         inPk = juce::jmax (inPk, ax);
 
@@ -242,8 +279,16 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         envState = ag > envState ? envAtkCoef * (envState - ag) + ag
                                  : envRelCoef * (envState - ag) + ag;
 
-        // [A] Direct source (mono, centred)
-        const float direct = gated * directSm.getNextValue();
+        // [A] Direct source (mono, centred), optionally squared-up (2× oversampled)
+        const float direct = squareUp.process (gated) * directSm.getNextValue();
+
+        // [B] Octave layer: causal rotating-head shifters (chord-safe)
+        const float down = shiftDown.process (gated);
+        const float up   = shiftUp.process (gated);
+        const float fm   = freeMixSm.getNextValue();
+        const float free = freeRun ? shiftFree.process (gated) * fm : 0.0f;
+        const float octave = (octDownSm.getNextValue() * down + octUpSm.getNextValue() * up + free)
+                           * octLvlSm.getNextValue();
 
         // [C] Synth source. Until the Voice envelopes land (2.1.5) its level follows
         // the guitar envelope, and fades out when tracking confidence is low (chords).
@@ -253,8 +298,8 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         float sl = 0.0f, sr = 0.0f;
         synth.tick (tracker.getHz(), synthAmp, sl, sr);
 
-        wetL[i] = direct + sl;
-        wetR[i] = direct + sr;
+        wetL[i] = direct + octave + sl;
+        wetR[i] = direct + octave + sr;
     }
 
     // ---- output: dry/wet, gain, safety clip --------------------------------------

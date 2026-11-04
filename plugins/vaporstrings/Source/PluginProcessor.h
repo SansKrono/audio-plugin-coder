@@ -8,6 +8,7 @@
 #include "ParameterIDs.hpp"
 #include "dsp/Analysis.h"
 #include "dsp/Synth.h"
+#include "dsp/Shifter.h"
 
 //==============================================================================
 /** Live values the editor streams to the WebView (written on the audio thread,
@@ -103,7 +104,21 @@ private:
     std::atomic<float>* pSpread   = nullptr;  std::atomic<float>* pSubLvl  = nullptr;
     juce::SmoothedValue<float> synthLvlSm;
     float confGain = 0.0f, confCoef = 0.0f;   // fades source C in/out with tracker confidence
-    juce::AudioBuffer<float> wetBuf;          // stereo wet bus (direct + synth)
+    juce::AudioBuffer<float> wetBuf;          // stereo wet bus (direct + octave + synth)
+
+    // Octave layer [B] + Square-Up on [A] (phase 2.1.4)
+    vs::PitchShifter shiftDown, shiftUp, shiftFree;
+    vs::SquareUp squareUp;
+    std::atomic<float>* pDirectSq = nullptr;
+    std::atomic<float>* pOctLvl   = nullptr;
+    std::atomic<float>* pOctDown  = nullptr;
+    std::atomic<float>* pOctUp    = nullptr;
+    std::atomic<float>* pOctShift = nullptr;
+    juce::SmoothedValue<float> octLvlSm, octDownSm, octUpSm, freeMixSm;
+    // The square-up oversampler delays source A by a few samples; the dry path is
+    // delayed to match so Dry/Wet blends never comb-filter.
+    std::array<float, 64> dryDelay {};
+    int dryDelayPos = 0;
 
     // Smoothed controls
     juce::SmoothedValue<float> inGainSm, directSm, outGainSm, dryWetSm, widthSm;
