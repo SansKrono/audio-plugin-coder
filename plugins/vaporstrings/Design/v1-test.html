@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VaporStrings — APC design preview</title>
+<link rel="stylesheet" href="apc-ui/apc-core.css">
+<link rel="stylesheet" href="apc-ui/apc-components.css">
+<style>
+:root {
+  --cols: 65;
+  --rows: 40;
+  --apc-letterbox: var(--surface);
+  --plate: #1a0b2e;
+  --surface: #0d0221;
+  --inset: #12052b;
+  --rule: #5b2a86;
+  --ink: #f6e9ff;
+  --ink-dim: #a58bc7;
+  --accent: #ff71ce;
+  --accent-2: #01cdfe;
+  --accent-3: #05ffa1;
+  --accent-4: #b967ff;
+  --sun: #fffb96;
+  --warn: #ff4f6d;
+  --grip-ink: #b967ff;
+  --r-control: 6px;
+  --r-panel: 10px;
+  --font-ui: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Eurostile", "Microgramma", "Segoe UI Black", "Arial Black", sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  --sh-recess: inset 0 1px 4px rgba(0,0,0,.7);
+  --sh-raised: 0 0 0 1px rgba(255,113,206,.25), 0 4px 12px rgba(1,205,254,.18);
+}
+
+</style>
+</head>
+<body>
+  <!-- composed from ui-map.json — do not hand-edit layout; edit the map -->
+<div class="apc-plate">
+    <div class="apc-cell apc-section" id="sec-header" style="left:0rem;top:0rem;width:65rem;height:6.25rem;"><span class="apc-sec-tag"></span></div>
+    <div class="apc-cell apc-section" id="sec-input" style="left:0.5rem;top:6.5rem;width:11.5rem;height:17.5rem;"><span class="apc-sec-tag">INPUT 入力</span></div>
+    <div class="apc-cell apc-section" id="sec-sources" style="left:12.5rem;top:6.5rem;width:27rem;height:17.5rem;"><span class="apc-sec-tag">SOURCES 音源</span></div>
+    <div class="apc-cell apc-section" id="sec-voice" style="left:40rem;top:6.5rem;width:24.5rem;height:17.5rem;"><span class="apc-sec-tag">VOICE 声</span></div>
+    <div class="apc-cell apc-section" id="sec-core" style="left:0.5rem;top:24.5rem;width:17rem;height:15rem;"><span class="apc-sec-tag">VAPOR 蒸気</span></div>
+    <div class="apc-cell apc-section" id="sec-fx" style="left:18rem;top:24.5rem;width:36.5rem;height:15rem;"><span class="apc-sec-tag">FX エフェクト</span></div>
+    <div class="apc-cell apc-section" id="sec-output" style="left:55rem;top:24.5rem;width:9.5rem;height:15rem;"><span class="apc-sec-tag">OUTPUT 出力</span></div>
+    <div class="apc-cell apc-well" id="cv-horizon" style="left:16rem;top:0.5rem;width:33rem;height:5.5rem;"><canvas data-fit="fit_horizon"></canvas></div>
+    <div class="apc-cell apc-well" id="cv-env-curve" style="left:46.5rem;top:13rem;width:17.75rem;height:4.5rem;"><canvas data-fit="fit_env_curve"></canvas></div>
+    <div class="apc-cell apc-well" id="cv-tracking" style="left:1rem;top:26rem;width:16rem;height:4rem;"><canvas data-fit="fit_tracking"></canvas></div>
+    <div class="apc-cell apc-well" id="cv-fx-scope" style="left:42.5rem;top:29.25rem;width:11.5rem;height:9.5rem;"><canvas data-fit="fit_fx_scope"></canvas></div>
+    <div class="apc-cell apc-well" id="cv-io-meters" style="left:55.5rem;top:35.5rem;width:8.5rem;height:3.5rem;"><canvas data-fit="fit_io_meters"></canvas></div>
+    <div class="apc-cell apc-ctl-label" id="ctl-title" style="left:1rem;top:1rem;width:14rem;height:2.5rem;">VAPORSTRINGS</div>
+    <div class="apc-cell apc-ctl-label" id="ctl-subtitle" style="left:1rem;top:3.75rem;width:14rem;height:1.5rem;">ヴェイパーストリングス · GUITAR → SYNTH</div>
+    <button class="apc-cell apc-chip" id="ctl-preset-prev" style="left:50rem;top:1.75rem;width:2.5rem;height:2.25rem;">◀</button>
+    <div class="apc-cell apc-screen" id="ctl-preset-name" style="left:52.75rem;top:1.75rem;width:9rem;height:2.25rem;">MALL AT 3AM</div>
+    <button class="apc-cell apc-chip" id="ctl-preset-next" style="left:62rem;top:1.75rem;width:2.5rem;height:2.25rem;">▶</button>
+    <div class="apc-cell apc-knob" id="ctl-in_gain" data-param="in_gain" style="left:1rem;top:8rem;width:5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">INPUT</div></div>
+    <div class="apc-cell apc-knob" id="ctl-gate_thresh" data-param="gate_thresh" style="left:6.5rem;top:8rem;width:5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">GATE</div></div>
+    <div class="apc-cell apc-knob" id="ctl-track_hpf" data-param="track_hpf" style="left:1rem;top:12.5rem;width:5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">TRK HPF</div></div>
+    <div class="apc-cell apc-knob" id="ctl-track_sens" data-param="track_sens" style="left:6.5rem;top:12.5rem;width:5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">SENS</div></div>
+    <div class="apc-cell apc-knob" id="ctl-track_speed" data-param="track_speed" style="left:1rem;top:17rem;width:5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">SPEED</div></div>
+    <div class="apc-cell apc-knob" id="ctl-glide" data-param="glide" style="left:6.5rem;top:17rem;width:5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">GLIDE</div></div>
+    <div class="apc-cell apc-flip" id="ctl-note_priority" data-param="note_priority" style="left:1rem;top:21.75rem;width:10.5rem;height:2rem;"><button class="apc-flip-cap"><span class="apc-flip-value">LAST</span></button><div class="apc-ctl-label">PRIORITY</div></div>
+    <div class="apc-cell apc-knob" id="ctl-src_direct_lvl" data-param="src_direct_lvl" style="left:13rem;top:8rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">DIRECT</div></div>
+    <div class="apc-cell apc-knob" id="ctl-direct_square" data-param="direct_square" style="left:17.25rem;top:8rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">SQUARE</div></div>
+    <div class="apc-cell apc-knob" id="ctl-src_oct_lvl" data-param="src_oct_lvl" style="left:21.5rem;top:8rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">OCTAVE</div></div>
+    <div class="apc-cell apc-knob" id="ctl-oct_down" data-param="oct_down" style="left:25.75rem;top:8rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">OCT −1</div></div>
+    <div class="apc-cell apc-knob" id="ctl-oct_up" data-param="oct_up" style="left:30rem;top:8rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">OCT +1</div></div>
+    <div class="apc-cell apc-knob" id="ctl-oct_shift" data-param="oct_shift" style="left:34.25rem;top:8rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">SHIFT</div></div>
+    <div class="apc-cell apc-knob" id="ctl-src_synth_lvl" data-param="src_synth_lvl" style="left:13rem;top:13rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">SYNTH</div></div>
+    <div class="apc-cell apc-knob" id="ctl-osc_mix" data-param="osc_mix" style="left:17.25rem;top:13rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">OSC MIX</div></div>
+    <div class="apc-cell apc-knob" id="ctl-osc2_detune" data-param="osc2_detune" style="left:21.5rem;top:13rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">DETUNE</div></div>
+    <div class="apc-cell apc-knob" id="ctl-pulse_width" data-param="pulse_width" style="left:25.75rem;top:13rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">PW</div></div>
+    <div class="apc-cell apc-knob" id="ctl-unison" data-param="unison" style="left:30rem;top:13rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">UNISON</div></div>
+    <div class="apc-cell apc-knob" id="ctl-unison_spread" data-param="unison_spread" style="left:34.25rem;top:13rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">SPREAD</div></div>
+    <div class="apc-cell apc-flip" id="ctl-osc1_wave" data-param="osc1_wave" style="left:13rem;top:19.5rem;width:5.5rem;height:3.5rem;"><button class="apc-flip-cap"><span class="apc-flip-value">SAW</span></button><div class="apc-ctl-label">OSC 1</div></div>
+    <div class="apc-cell apc-flip" id="ctl-osc1_oct" data-param="osc1_oct" style="left:18.75rem;top:19.5rem;width:4rem;height:3.5rem;"><button class="apc-flip-cap"><span class="apc-flip-value">0</span></button><div class="apc-ctl-label">OCT</div></div>
+    <div class="apc-cell apc-flip" id="ctl-osc2_wave" data-param="osc2_wave" style="left:23rem;top:19.5rem;width:5.5rem;height:3.5rem;"><button class="apc-flip-cap"><span class="apc-flip-value">SQUARE</span></button><div class="apc-ctl-label">OSC 2</div></div>
+    <div class="apc-cell apc-flip" id="ctl-osc2_oct" data-param="osc2_oct" style="left:28.75rem;top:19.5rem;width:4rem;height:3.5rem;"><button class="apc-flip-cap"><span class="apc-flip-value">0</span></button><div class="apc-ctl-label">OCT</div></div>
+    <div class="apc-cell apc-knob" id="ctl-sub_lvl" data-param="sub_lvl" style="left:33.25rem;top:18.75rem;width:4.25rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">SUB</div></div>
+    <div class="apc-cell apc-knob" id="ctl-flt_cutoff" data-param="flt_cutoff" style="left:40.5rem;top:8rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">CUTOFF</div></div>
+    <div class="apc-cell apc-knob" id="ctl-flt_res" data-param="flt_res" style="left:45rem;top:8rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">RES</div></div>
+    <div class="apc-cell apc-knob" id="ctl-flt_drive" data-param="flt_drive" style="left:49.5rem;top:8rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">DRIVE</div></div>
+    <div class="apc-cell apc-knob" id="ctl-flt_env_amt" data-param="flt_env_amt" style="left:54rem;top:8rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">ENV AMT</div></div>
+    <div class="apc-cell apc-flip" id="ctl-flt_type" data-param="flt_type" style="left:59rem;top:8.5rem;width:5rem;height:3.5rem;"><button class="apc-flip-cap"><span class="apc-flip-value">LP24</span></button><div class="apc-ctl-label">FILTER</div></div>
+    <div class="apc-cell apc-flip" id="ctl-env_mode" data-param="env_mode" style="left:40.5rem;top:13.5rem;width:5.5rem;height:3.5rem;"><button class="apc-flip-cap"><span class="apc-flip-value">FOLLOW</span></button><div class="apc-ctl-label">ENV</div></div>
+    <div class="apc-cell apc-knob" id="ctl-env_attack" data-param="env_attack" style="left:40.5rem;top:18.5rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">ATTACK</div></div>
+    <div class="apc-cell apc-knob" id="ctl-env_decay" data-param="env_decay" style="left:45rem;top:18.5rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">DECAY</div></div>
+    <div class="apc-cell apc-knob" id="ctl-env_sustain" data-param="env_sustain" style="left:49.5rem;top:18.5rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">SUSTAIN</div></div>
+    <div class="apc-cell apc-knob" id="ctl-env_release" data-param="env_release" style="left:54rem;top:18.5rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">RELEASE</div></div>
+    <div class="apc-cell apc-knob" id="ctl-vel_sens" data-param="vel_sens" style="left:58.5rem;top:18.5rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">PICK VEL</div></div>
+    <div class="apc-cell apc-knob" id="ctl-vapor" data-param="vapor" style="left:4.5rem;top:30.25rem;width:9rem;height:9rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">VAPOR</div></div>
+    <button class="apc-cell apc-chip" id="ctl-tab-slow" style="left:18.5rem;top:26rem;width:4.75rem;height:2rem;">SLOW</button>
+    <button class="apc-cell apc-chip" id="ctl-tab-drive" style="left:23.5rem;top:26rem;width:4.75rem;height:2rem;">DRIVE</button>
+    <button class="apc-cell apc-chip" id="ctl-tab-ens" style="left:28.5rem;top:26rem;width:4.75rem;height:2rem;">ENSEMBLE</button>
+    <button class="apc-cell apc-chip" id="ctl-tab-wob" style="left:33.5rem;top:26rem;width:4.75rem;height:2rem;">WOBBLE</button>
+    <button class="apc-cell apc-chip" id="ctl-tab-haze" style="left:38.5rem;top:26rem;width:4.75rem;height:2rem;">HAZE</button>
+    <button class="apc-cell apc-chip" id="ctl-tab-echo" style="left:43.5rem;top:26rem;width:4.75rem;height:2rem;">ECHO</button>
+    <button class="apc-cell apc-chip" id="ctl-tab-mod" style="left:48.5rem;top:26rem;width:4.75rem;height:2rem;">MOD</button>
+    <button class="apc-cell apc-psw" id="ctl-haze_on" data-param="haze_on" aria-checked="false" style="left:18.5rem;top:29.25rem;width:5rem;height:2rem;"><span class="led"></span><span>HAZE</span></button>
+    <button class="apc-cell apc-psw" id="ctl-haze_freeze" data-param="haze_freeze" aria-checked="false" style="left:18.5rem;top:31.75rem;width:5rem;height:2rem;"><span class="led"></span><span>FREEZE</span></button>
+    <div class="apc-cell apc-knob" id="ctl-haze_size" data-param="haze_size" style="left:24rem;top:29.25rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">SIZE</div></div>
+    <div class="apc-cell apc-knob" id="ctl-haze_decay" data-param="haze_decay" style="left:28.5rem;top:29.25rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">DECAY</div></div>
+    <div class="apc-cell apc-knob" id="ctl-haze_predelay" data-param="haze_predelay" style="left:33rem;top:29.25rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">PRE-DLY</div></div>
+    <div class="apc-cell apc-knob" id="ctl-haze_mix" data-param="haze_mix" style="left:37.5rem;top:29.25rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">MIX</div></div>
+    <div class="apc-cell apc-knob" id="ctl-haze_mod" data-param="haze_mod" style="left:24rem;top:34.25rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">SMEAR</div></div>
+    <div class="apc-cell apc-knob" id="ctl-haze_damp" data-param="haze_damp" style="left:28.5rem;top:34.25rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">DAMP</div></div>
+    <div class="apc-cell apc-knob" id="ctl-haze_reverse" data-param="haze_reverse" style="left:33rem;top:34.25rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">REVERSE</div></div>
+    <div class="apc-cell apc-knob" id="ctl-width" data-param="width" style="left:55.25rem;top:26rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">WIDTH</div></div>
+    <div class="apc-cell apc-knob" id="ctl-dry_wet" data-param="dry_wet" style="left:59.75rem;top:26rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">DRY/WET</div></div>
+    <div class="apc-cell apc-knob" id="ctl-out_gain" data-param="out_gain" style="left:57.5rem;top:30.75rem;width:4.5rem;height:4.5rem;"><div class="apc-knob-dial"><div class="apc-knob-pointer"></div></div><div class="apc-ctl-label">OUTPUT</div></div>
+    <div class="apc-grip" id="ctl-grip" title="Drag to resize"></div>
+</div>
+<!-- hidden in this view (e.g. settings sheet) — DOM ids kept for parity -->
+<template id="apc-hidden"><div id="ctl-slow_on" data-param="slow_on"></div><div id="ctl-slow_pitch" data-param="slow_pitch"></div><div id="ctl-slow_drift" data-param="slow_drift"></div><div id="ctl-drive_on" data-param="drive_on"></div><div id="ctl-drive_mode" data-param="drive_mode"></div><div id="ctl-drive_amt" data-param="drive_amt"></div><div id="ctl-drive_tone" data-param="drive_tone"></div><div id="ctl-ens_on" data-param="ens_on"></div><div id="ctl-ens_mode" data-param="ens_mode"></div><div id="ctl-ens_rate" data-param="ens_rate"></div><div id="ctl-ens_depth" data-param="ens_depth"></div><div id="ctl-ens_mix" data-param="ens_mix"></div><div id="ctl-wob_on" data-param="wob_on"></div><div id="ctl-wob_wow" data-param="wob_wow"></div><div id="ctl-wob_flutter" data-param="wob_flutter"></div><div id="ctl-wob_age" data-param="wob_age"></div><div id="ctl-wob_dropout" data-param="wob_dropout"></div><div id="ctl-echo_on" data-param="echo_on"></div><div id="ctl-echo_sync" data-param="echo_sync"></div><div id="ctl-echo_div" data-param="echo_div"></div><div id="ctl-echo_time" data-param="echo_time"></div><div id="ctl-echo_fb" data-param="echo_fb"></div><div id="ctl-echo_tone" data-param="echo_tone"></div><div id="ctl-echo_mix" data-param="echo_mix"></div><div id="ctl-lfo1_shape" data-param="lfo1_shape"></div><div id="ctl-lfo1_dest" data-param="lfo1_dest"></div><div id="ctl-lfo1_rate" data-param="lfo1_rate"></div><div id="ctl-lfo1_amt" data-param="lfo1_amt"></div><div id="ctl-lfo1_sync" data-param="lfo1_sync"></div><div id="ctl-lfo2_shape" data-param="lfo2_shape"></div><div id="ctl-lfo2_dest" data-param="lfo2_dest"></div><div id="ctl-lfo2_rate" data-param="lfo2_rate"></div><div id="ctl-lfo2_amt" data-param="lfo2_amt"></div><div id="ctl-lfo2_sync" data-param="lfo2_sync"></div></template>
+<script src="apc-ui/apc-fit.js"></script>
+<script>
+
+  document.addEventListener("DOMContentLoaded", function () {
+    if (window.APC) APC.mountKit(document);
+  });
+</script>
+<!--
+  [note] FX detail panel is tabbed: tab chips (view fx-*) switch which page of controls is visible. Default page = fx-haze. Hidden pages are real DOM elements toggled via a data-view class; they occupy the same cells x18.5-42, y29-39. (on fx)
+  [note] fx-scope canvas is shared by all FX pages and draws the active effect: pitch arrow (SLOW), transfer curve (DRIVE), 3 phase-offset LFO traces (ENSEMBLE), wobbling tape line (WOBBLE), decay tail with freeze glow (HAZE), repeat taps (ECHO), LFO waveforms (MOD). (on fx-scope)
+  [note] Each tab chip shows a small LED dot reflecting its *_on param (MOD tab lit when either LFO amount != 0). (on tab chips)
+  [note] Header horizon: pink→orange striped sun, perspective cyan grid scrolling toward viewer; output waveform drawn as glowing mountain silhouette on the horizon line (30 fps, pauses when hidden). (on horizon)
+  [note] Tracking display: big detected note (m_note) + cents needle, confidence bar (m_conf); turns --warn with 'CHORD? MONO SYNTH' when confidence low while gate open. (on tracking)
+  [note] Hero knob: chrome ring with pink→cyan conic neon arc, glow intensity follows value. (on vapor)
+  [note] Two horizontal bars IN / OUT (m_in, m_out), cyan→pink→warn gradient, peak hold. (on io-meters)
+  [note] Envelope view: draws ADSR / follow / swell shape for env_mode; live m_env dot riding the curve. (on env-curve)
+  [note] Octave flips cycle -2..+2; options listed starting from the default 0. (on osc1_oct/osc2_oct)
+-->
+</body>
+</html>
