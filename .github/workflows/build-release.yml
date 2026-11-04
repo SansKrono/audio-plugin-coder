@@ -1,0 +1,136 @@
+name: Build Release (macOS / Linux)
+
+# Builds one APC plugin for macOS (VST3, AU, Standalone; universal) and Linux
+# (VST3, LV2, Standalone) and uploads zipped artefacts. Windows releases are
+# built and validated locally (/apc-ship). No GitHub Release is published.
+#
+# Trigger: push a tag  v<version>-<plugin>   e.g.  v0.9.0-vaporstrings
+#          or run manually with plugin_name / version.
+
+on:
+  push:
+    tags:
+      - 'v*-*'
+  workflow_dispatch:
+    inputs:
+      plugin_name:
+        description: 'Plugin folder name under plugins/ (e.g. vaporstrings)'
+        required: true
+      version:
+        description: 'Version label for the artefacts (e.g. 0.9.0)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      plugin: ${{ steps.r.outputs.plugin }}
+      version: ${{ steps.r.outputs.version }}
+    steps:
+      - id: r
+        env:
+          IN_PLUGIN: ${{ github.event.inputs.plugin_name }}
+          IN_VERSION: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ -n "$IN_PLUGIN" ]; then
+            plugin="$IN_PLUGIN"; version="$IN_VERSION"
+          else
+            # tag v0.9.0-vaporstrings -> version 0.9.0, plugin vaporstrings
+            version="${REF_NAME#v}"; version="${version%%-*}"
+            plugin="${REF_NAME#v*-}"
+          fi
+          if ! echo "$plugin" | grep -Eq '^[A-Za-z0-9_]+$'; then echo "bad plugin name: $plugin"; exit 1; fi
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then echo "bad version: $version"; exit 1; fi
+          echo "plugin=$plugin" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build-macos:
+    needs: resolve
+    runs-on: macos-latest
+    env:
+      PLUGIN: ${{ needs.resolve.outputs.plugin }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch JUCE
+        run: git submodule update --init --depth 1 _tools/JUCE
+      - name: Isolate plugin
+        run: |
+          mkdir -p ci-plugins
+          cp -R "plugins/$PLUGIN" "ci-plugins/$PLUGIN"
+      - name: Configure (universal)
+        run: cmake -S . -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DAPC_PLUGINS_DIR="$PWD/ci-plugins" -DAPC_ENABLE_CLAP=OFF
+      - name: Build VST3 / AU / Standalone
+        run: |
+          cmake --build build --config Release --target "${PLUGIN}_VST3"
+          cmake --build build --config Release --target "${PLUGIN}_AU"
+          cmake --build build --config Release --target "${PLUGIN}_Standalone"
+      - name: Package
+        run: |
+          art="build/plugins/$PLUGIN/${PLUGIN}_artefacts/Release"
+          out="dist/$PLUGIN-$VERSION-macOS"
+          mkdir -p "$out"
+          cp -R "$art/VST3/"*.vst3 "$out/"
+          cp -R "$art/AU/"*.component "$out/"
+          cp -R "$art/Standalone/"*.app "$out/"
+          [ -d "plugins/$PLUGIN/Documentation" ] && cp -R "plugins/$PLUGIN/Documentation/." "$out/"
+          (cd dist && ditto -c -k --keepParent "$PLUGIN-$VERSION-macOS" "$PLUGIN-$VERSION-macOS.zip")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.resolve.outputs.plugin }}-${{ needs.resolve.outputs.version }}-macOS
+          path: dist/*.zip
+          if-no-files-found: error
+
+  build-linux:
+    needs: resolve
+    runs-on: ubuntu-24.04
+    env:
+      PLUGIN: ${{ needs.resolve.outputs.plugin }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch JUCE
+        run: git submodule update --init --depth 1 _tools/JUCE
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libasound2-dev libfreetype6-dev \
+            libgl1-mesa-dev libx11-dev libxcomposite-dev libxcursor-dev \
+            libxext-dev libxinerama-dev libxrandr-dev libwebkit2gtk-4.1-dev \
+            libjack-jackd2-dev xvfb libegl-dev
+      - name: Isolate plugin
+        run: |
+          mkdir -p ci-plugins
+          cp -R "plugins/$PLUGIN" "ci-plugins/$PLUGIN"
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAPC_PLUGINS_DIR="$PWD/ci-plugins" -DAPC_ENABLE_CLAP=OFF
+      - name: Build VST3
+        run: cmake --build build --target "${PLUGIN}_VST3" -j 4
+      - name: Build LV2 (needs a display for the manifest helper)
+        run: xvfb-run cmake --build build --target "${PLUGIN}_LV2" -j 4
+      - name: Build Standalone
+        run: xvfb-run cmake --build build --target "${PLUGIN}_Standalone" -j 4
+      - name: Package
+        run: |
+          art="build/plugins/$PLUGIN/${PLUGIN}_artefacts/Release"
+          [ -d "$art" ] || art="build/plugins/$PLUGIN/${PLUGIN}_artefacts"
+          out="dist/$PLUGIN-$VERSION-Linux"
+          mkdir -p "$out"
+          cp -R "$art/VST3/"*.vst3 "$out/"
+          cp -R "$art/LV2/"*.lv2 "$out/"
+          cp "$art/Standalone/"* "$out/"
+          [ -d "plugins/$PLUGIN/Documentation" ] && cp -R "plugins/$PLUGIN/Documentation/." "$out/"
+          (cd dist && tar -czf "$PLUGIN-$VERSION-Linux.tar.gz" "$PLUGIN-$VERSION-Linux")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.resolve.outputs.plugin }}-${{ needs.resolve.outputs.version }}-Linux
+          path: dist/*.tar.gz
+          if-no-files-found: error

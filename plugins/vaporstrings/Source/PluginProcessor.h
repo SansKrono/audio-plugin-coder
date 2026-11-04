@@ -5,6 +5,9 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <array>
 #include <atomic>
+#include <cstdint>
+#include <cstring>
+#include <vector>
 #include "ParameterIDs.hpp"
 #include "dsp/Analysis.h"
 #include "dsp/Synth.h"

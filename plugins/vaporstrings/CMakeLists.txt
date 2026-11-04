@@ -25,6 +25,7 @@ endif()
 # PLUGIN DEFINITION
 # ============================================
 juce_add_plugin(vaporstrings
+    VERSION 0.9.0                      # plugin version (else JUCE uses the APC framework version)
     COMPANY_NAME "Noizefield"
     PLUGIN_MANUFACTURER_CODE Nfld
     PLUGIN_CODE VpSt
