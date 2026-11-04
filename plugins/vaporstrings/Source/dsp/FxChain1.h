@@ -132,9 +132,13 @@ public:
         // 0.2 Hz random drift: a new target every 5 s / 0.2 Hz cycle, smoothed
         if (--driftTimer <= 0) { driftTarget = rng.uni(); driftTimer = (int) (sr / 0.2 * 0.5); }
         drift = driftTarget + driftLp * (drift - driftTarget);
-        const float ratio = std::exp2 ((st + drift * amt * 0.30f) / 12.0f);
-        sh[0].setRatio (ratio);
-        sh[1].setRatio (ratio);
+        if (--ratioTick <= 0)                     // ratio is slow-moving: refresh every 16 samples
+        {
+            ratioTick = 16;
+            const float ratio = std::exp2 ((st + drift * amt * 0.30f) / 12.0f);
+            sh[0].setRatio (ratio);
+            sh[1].setRatio (ratio);
+        }
         l = sh[0].process (l);
         r = sh[1].process (r);
     }
@@ -144,7 +148,7 @@ private:
     std::array<PitchShifter, 2> sh;
     Rng rng;
     float st = -3.0f, amt = 0.1f, drift = 0.0f, driftTarget = 0.0f, driftLp = 0.999f;
-    int driftTimer = 0;
+    int driftTimer = 0, ratioTick = 0;
 };
 
 //==============================================================================
@@ -168,6 +172,7 @@ public:
         for (auto& b : fuzzBump) b.reset();
         tiltZ = { 0.0f, 0.0f }; dcX = dcY = { 0.0f, 0.0f };
         holdCount = 0; held = { 0.0f, 0.0f };
+        lastAmt = lastTone = -1.0f;
     }
     void setParams (Mode m, float amount, float toneAmt) noexcept { mode = m; amt.t = std::clamp (amount, 0.0f, 1.0f); tone.t = std::clamp (toneAmt, 0.0f, 1.0f); }
     void snap() { amt.snap (amt.t); tone.snap (tone.t); }
@@ -190,21 +195,19 @@ public:
         }
         else
         {
-            const float g = std::pow (10.0f, 1.5f * a);           // 0 … +30 dB
-            const float comp = 1.0f / std::sqrt (g);
+            if (a != lastAmt) { gainLin = std::pow (10.0f, 1.5f * a); comp = 1.0f / std::sqrt (gainLin); lastAmt = a; }   // 0 … +30 dB
             for (int c = 0; c < 2; ++c)
             {
                 float u0, u1;
                 os[(size_t) c].up (io[c], u0, u1);
-                u0 = shape (u0, g, c);
-                u1 = shape (u1, g, c);
+                u0 = shape (u0, gainLin, c);
+                u1 = shape (u1, gainLin, c);
                 io[c] = os[(size_t) c].down (u0, u1) * comp;
             }
         }
 
         // tilt EQ around 1 kHz: ±6 dB per band, a 12 dB swing end to end (tone 0 = dark, 1 = bright)
-        const float tiltDb = (t - 0.5f) * 12.0f;
-        const float hiG = std::pow (10.0f, tiltDb / 20.0f), loG = 1.0f / hiG;
+        if (t != lastTone) { hiG = std::pow (10.0f, (t - 0.5f) * 12.0f / 20.0f); loG = 1.0f / hiG; lastTone = t; }
         for (int c = 0; c < 2; ++c)
         {
             auto& z = tiltZ[(size_t) c];
@@ -247,6 +250,8 @@ private:
     std::array<Biquad, 2> fuzzBump;
     std::array<float, 2> tiltZ {}, dcX {}, dcY {}, held {};
     float tiltA = 0.9f;
+    // cached per-value coefficients (recomputed only when the smoothed control moves)
+    float lastAmt = -1.0f, gainLin = 1.0f, comp = 1.0f, lastTone = -1.0f, hiG = 1.0f, loG = 1.0f;
     int holdCount = 0;
 };
 
@@ -283,9 +288,12 @@ public:
         float tap[3];
         for (int k = 0; k < 3; ++k)
         {
-            const double ph = phase + k / 3.0;
-            const float slow = (float) std::sin (6.283185307 * ph);
-            const float fast = (float) std::sin (6.283185307 * (ph * 9.5 + k * 0.29));
+            double ph = phase + k / 3.0;
+            ph -= std::floor (ph);
+            double pf = ph * 9.5 + k * 0.29;
+            pf -= std::floor (pf);
+            const float slow = fastSin2pi ((float) ph);
+            const float fast = fastSin2pi ((float) pf);
             const float ms = base[k] + dp * (2.0f * slow + 0.3f * 0.6f * fast);
             lines[(size_t) k].push (in);
             tap[k] = lines[(size_t) k].read (std::max (1.0f, ms * 0.001f * (float) sr));
@@ -331,7 +339,7 @@ public:
         for (auto& d : dl) d.reset();
         for (auto& b : lp) b.reset();
         walk = walkTarget = 0.0f; walkTimer = 0; flPhase = 0.0;
-        pink = {}; dipGain = 1.0f; dipTimer = 0; dipLeft = 0; dipDepth = 1.0f; lastLpHz = -1.0f;
+        pink = {}; dipGain = 1.0f; dipTimer = 0; dipLeft = 0; dipDepth = 1.0f; lastLpHz = -1.0f; lastAge = -1.0f;
     }
     void setParams (float wowAmt, float flutterAmt, float ageAmt, float dropAmt) noexcept
     {
@@ -350,7 +358,7 @@ public:
         // flutter: 6–12 Hz sine (rate drifts with the walk) + jitter
         flPhase += (9.0 + 3.0 * walk) / sr;
         flPhase -= std::floor (flPhase);
-        const float fl = (float) std::sin (6.283185307 * flPhase) + 0.25f * rng.uni();
+        const float fl = fastSin2pi ((float) flPhase) + 0.25f * rng.uni();
         const float ms = 8.0f + 3.0f * w * walk + 0.3f * f * fl;
         const float del = std::max (1.0f, ms * 0.001f * (float) sr);
 
@@ -358,9 +366,13 @@ public:
         float io[2] = { dl[0].read (del), dl[1].read (del) };
 
         // age: LPF 20 kHz → 3.5 kHz (updated when it moves), saturation, pink hiss
-        const float lpHz = 20000.0f * std::pow (3500.0f / 20000.0f, a);
-        if (std::abs (lpHz - lastLpHz) > 1.0f) { for (auto& b : lp) b.setLowPass (sr, std::min (lpHz, (float) (0.45 * sr)), 0.7071); lastLpHz = lpHz; }
-        const float hissAmp = a > 0.0f ? std::pow (10.0f, (-70.0f + 30.0f * a) / 20.0f) : 0.0f;
+        if (a != lastAge)                        // recompute age coefficients only when age moves
+        {
+            const float lpHz = 20000.0f * std::pow (3500.0f / 20000.0f, a);
+            if (std::abs (lpHz - lastLpHz) > 1.0f) { for (auto& b : lp) b.setLowPass (sr, std::min (lpHz, (float) (0.45 * sr)), 0.7071); lastLpHz = lpHz; }
+            hissAmp = a > 0.0f ? std::pow (10.0f, (-70.0f + 30.0f * a) / 20.0f) : 0.0f;
+            lastAge = a;
+        }
         const float drv = 1.0f + 2.0f * a;
         for (int c = 0; c < 2; ++c)
         {
@@ -407,7 +419,7 @@ private:
     Rng rng;
     float walk = 0, walkTarget = 0, walkLp = 0.999f;
     int walkTimer = 0, dipLeft = 0, dipTimer = 0;
-    float dipGain = 1.0f, dipDepth = 1.0f, dipCoef = 0.99f, lastLpHz = -1.0f;
+    float dipGain = 1.0f, dipDepth = 1.0f, dipCoef = 0.99f, lastLpHz = -1.0f, lastAge = -1.0f, hissAmp = 0.0f;
 };
 
 } // namespace vs

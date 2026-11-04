@@ -17,6 +17,7 @@
 #include "../Source/dsp/FxChain2.h"
 #include "../Source/dsp/Modulation.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -830,6 +831,95 @@ int main (int argc, char** argv)
         n.noteOn (1.0f, 0.3f); for (int i = 0; i < 100; ++i) n.tick (0.3f, true);
         std::snprintf (buf, sizeof buf, "VAPOR swell 200 ms %.2f, no VAPOR %.2f", at200, n.level());
         check ("Follow + VAPOR swell", std::abs (at200 - 0.5f) < 0.05f && n.level() > 0.99f, buf);
+    }
+
+    /* ---------------------------------------------------------------- sample rates */
+    std::printf ("\n-- sample rates (tracker) --\n");
+    for (double sr2 : { 44100.0, 88200.0, 96000.0, 192000.0 })
+    {
+        // render a 110 Hz KS pluck at sr2 (period N − ½ as above)
+        const int period = (int) std::lround (sr2 / 110.0 + 0.5);
+        const double hz = sr2 / (period - 0.5);
+        std::mt19937 rng (21); std::uniform_real_distribution<float> uni (-1.0f, 1.0f);
+        std::vector<float> line ((size_t) period); for (auto& s : line) s = uni (rng);
+        std::vector<float> sig ((size_t) (1.5 * sr2));
+        size_t p = 0;
+        for (auto& o : sig) { const size_t n = (p + 1) % line.size(); o = 0.4f * line[p]; line[p] = 0.996f * 0.5f * (line[p] + line[n]); p = n; }
+        vs::PitchTracker t; t.prepare (sr2); t.setResponse (0.6f, 0.5f, vs::PitchTracker::Priority::Last);
+        int voiced = 0, inTune = 0;
+        const size_t hop = (size_t) (sr2 / 200.0);
+        for (size_t i = 0; i < sig.size(); ++i)
+        {
+            t.push (sig[i], true);
+            if (i % hop == 0 && i > (size_t) (0.06 * sr2) && t.isVoiced())
+            { ++voiced; inTune += std::abs (1200.0 * std::log2 (t.getHz() / hz)) < 20.0; }
+        }
+        std::snprintf (buf, sizeof buf, "A2 inTune %d/%d", inTune, voiced);
+        char name[32]; std::snprintf (name, sizeof name, "tracker @ %.1f kHz", sr2 / 1000.0);
+        check (name, voiced > 0 && inTune == voiced, buf);
+    }
+
+    /* ---------------------------------------------------------------- CPU benchmark */
+    std::printf ("\n-- CPU (worst case, std-only chain; JUCE ladder filter excluded) --\n");
+    {
+        const int block = 128;
+        const double seconds = 10.0;
+        vs::PitchTracker tr; tr.prepare (kSr); tr.setResponse (0.6f, 0.5f, vs::PitchTracker::Priority::Last);
+        vs::OnsetDetector od; od.prepare (kSr); od.setSensitivity (0.5f, 0.5f);
+        vs::VoiceEnvelope ve; ve.prepare (kSr); ve.setParams (vs::VoiceEnvelope::Mode::ADSR, 5, 300, 0.8f, 400);
+        vs::SynthSource sy; sy.prepare (kSr);
+        vs::SynthSource::Params sp; sp.unison = 7; sp.subLevel = 1.0f; sp.oscMix = 0.5f; sp.spread = 1.0f; sy.setParams (sp);
+        vs::PitchShifter sd, su, sf; sd.prepare (kSr, 40); su.prepare (kSr, 40); sf.prepare (kSr, 40);
+        sd.setRatio (0.5f); su.setRatio (2.0f); sf.setRatio (1.5f);
+        vs::SquareUp sq; sq.setAmount (0.7f);
+        vs::Slowdown sl; sl.prepare (kSr); sl.setParams (-3, 0.3f);
+        vs::Drive dr; dr.prepare (kSr); dr.setParams (vs::Drive::Mode::Tape, 0.5f, 0.5f); dr.snap();
+        vs::Ensemble en; en.prepare (kSr); en.setParams (vs::Ensemble::Mode::Ensemble, 0.6f, 0.6f, 0.6f); en.snap();
+        vs::Wobble wb; wb.prepare (kSr); wb.setParams (0.5f, 0.5f, 0.5f, 0.5f); wb.snap();
+        vs::Haze hz; hz.prepare (kSr); { vs::Haze::Params hp; hp.reverse = 0.5f; hz.setParams (hp); hz.snap(); }
+        vs::Echo ec; ec.prepare (kSr); { vs::Echo::Params ep; ep.feedback = 0.5f; ec.setParams (ep); ec.snap(); }
+        std::array<vs::Bypass, 4> bp; for (auto& b : bp) b.prepare (kSr);
+        vs::Smooth hm, ho, em, eo; for (auto* s : { &hm, &ho, &em, &eo }) { s->prepare (kSr, 15); s->snap (0.5f); }
+        bool ha = false, ea = false;
+        std::array<vs::Lfo, 2> lf; for (auto& l : lf) { l.prepare (kSr); l.setShape (vs::Lfo::Shape::Triangle); }
+
+        std::vector<float> input ((size_t) (seconds * kSr));
+        for (int k = 0; k < (int) seconds * 2; ++k)
+        {
+            double a = 0; auto s = pluck (110.0 * (1 + k % 4), 0.5, 0.4, 300 + k, &a);
+            std::copy (s.begin(), s.end(), input.begin() + (long) (k * 0.5 * kSr));
+        }
+        std::vector<float> L (block), R (block);
+        float env = 0, sink = 0;
+        const auto t0 = std::chrono::steady_clock::now();
+        for (size_t s = 0; s + block <= input.size(); s += block)
+        {
+            for (auto& l : lf) l.beginBlock (1.0f, false, 120.0, -1.0);
+            for (int i = 0; i < block; ++i)
+            {
+                if (i % 32 == 0) for (auto& l : lf) l.advance (32);
+                const float x = input[s + (size_t) i];
+                tr.push (x, true);
+                const float ax = std::abs (x); env = ax > env ? ax : env * 0.9998f;
+                if (od.push (x, 0.003f)) ve.noteOn (od.getVelocity(), env);
+                ve.tick (env, true);
+                const float dct = sq.process (x);
+                const float oct = sd.process (x) + su.process (x) + sf.process (x);
+                float a, b; sy.tick (tr.getHz(), ve.level(), a, b);
+                L[(size_t) i] = dct + oct + a; R[(size_t) i] = dct + oct + b;
+            }
+            vs::runInsert (bp[0], true, sl, L.data(), R.data(), block);
+            vs::runInsert (bp[1], true, dr, L.data(), R.data(), block);
+            vs::runInsert (bp[2], true, en, L.data(), R.data(), block);
+            vs::runInsert (bp[3], true, wb, L.data(), R.data(), block);
+            vs::runSend (hz, true, 0.5f, hm, ho, ha, L.data(), R.data(), block);
+            vs::runSend (ec, true, 0.3f, em, eo, ea, L.data(), R.data(), block);
+            sink += L[0] + R[block - 1];
+        }
+        const double el = std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
+        const double pct = 100.0 * el / seconds;
+        std::snprintf (buf, sizeof buf, "%.2f%% of one core (%.2f s for %.0f s audio)%s", pct, el, seconds, sink == 12345.0f ? "!" : "");
+        check ("full chain @48k/128", pct < 8.0, buf);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED", failures, failures == 1 ? "" : "s");

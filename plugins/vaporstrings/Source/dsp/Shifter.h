@@ -10,6 +10,8 @@
     SquareUp       pre-emphasis → drive (0 … +48 dB) → tanh/hard-clip blend →
                    de-emphasis → level compensation, all at 2× rate.            */
 
+#include "Analysis.h"   // fastSin2pi, Biquad
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -45,6 +47,16 @@ public:
     /** ratio: 0.5 = octave down, 2 = octave up, 1 = unity. */
     void setRatio (float r) noexcept { ratio = std::clamp (r, 0.25f, 4.0f); }
 
+    /** Silent path: keep the delay line fed (so re-enabling never replays stale
+        audio) without the two interpolated reads. */
+    void feed (float x) noexcept
+    {
+        buf[(size_t) write] = x;
+        phase += (1.0f - ratio) / grain;
+        phase -= std::floor (phase);
+        write = (write + 1) & mask;
+    }
+
     float process (float x) noexcept
     {
         buf[(size_t) write] = x;
@@ -62,7 +74,7 @@ public:
     }
 
 private:
-    static float hann (float p) noexcept { const float s = std::sin (3.14159265f * p); return s * s; }
+    static float hann (float p) noexcept { const float s = fastSin2pi (0.5f * p); return s * s; }   // sin²(πp)
 
     float read (float p) const noexcept
     {

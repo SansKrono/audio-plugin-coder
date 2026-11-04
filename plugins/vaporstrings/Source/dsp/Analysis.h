@@ -17,6 +17,18 @@
 namespace vs
 {
 //==============================================================================
+/** sin(2π·phase) for phase in [0, 1), max error ≈ 0.001. For LFOs and crossfade
+    windows only — audio-rate oscillators keep std::sin. */
+inline float fastSin2pi (float phase) noexcept
+{
+    float z = 2.0f * phase - 1.0f;              // −1…1  (sin(2πp) = −sin(πz))
+    const float az = std::abs (z);
+    float y = 4.0f * z * (1.0f - az);           // parabola through 0, ±1
+    y = y * (0.775f + 0.225f * std::abs (y));   // refinement
+    return -y;
+}
+
+//==============================================================================
 /** RBJ biquad, transposed direct form II. */
 struct Biquad
 {

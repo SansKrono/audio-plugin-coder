@@ -319,6 +319,8 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     shiftFree.setRatio (std::exp2 (freeSt / 12.0f));
     freeMixSm.setTargetValue (freeOn ? 1.0f : 0.0f);
     const bool freeRun = freeOn || freeMixSm.isSmoothing();
+    // octave layer fully silent (level −inf and settled) → shifters only keep their buffers fed
+    const bool octSilent = octLvlSm.getTargetValue() <= 0.0f && ! octLvlSm.isSmoothing();
     // ---- voice settings ----------------------------------------------------------------
     voiceEnv.setParams ((vs::VoiceEnvelope::Mode) juce::jlimit (0, 2, (int) pEnvMode->load()),
                         juce::jmin (5000.0f, pAtk->load() * vapor.attackMul), pDec->load(), pSus->load(), pRel->load());
@@ -412,12 +414,23 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const float direct = squareUp.process (gated) * directSm.getNextValue();
 
         // [B] Octave layer: causal rotating-head shifters (chord-safe)
-        const float down = shiftDown.process (gated);
-        const float up   = shiftUp.process (gated);
-        const float fm   = freeMixSm.getNextValue();
-        const float free = freeRun ? shiftFree.process (gated) * fm : 0.0f;
-        const float octave = (octDownSm.getNextValue() * down + octUpSm.getNextValue() * up + free)
-                           * octLvlSm.getNextValue();
+        float octave = 0.0f;
+        if (octSilent)
+        {
+            shiftDown.feed (gated);
+            shiftUp.feed (gated);
+            if (freeRun) shiftFree.feed (gated);
+            octDownSm.getNextValue(); octUpSm.getNextValue(); freeMixSm.getNextValue(); octLvlSm.getNextValue();
+        }
+        else
+        {
+            const float down = shiftDown.process (gated);
+            const float up   = shiftUp.process (gated);
+            const float fm   = freeMixSm.getNextValue();
+            const float free = freeRun ? shiftFree.process (gated) * fm : 0.0f;
+            octave = (octDownSm.getNextValue() * down + octUpSm.getNextValue() * up + free)
+                   * octLvlSm.getNextValue();
+        }
 
         // [C] Synth source: fully gated by the voice envelope, and faded out when
         // tracking confidence is low (chords) so wrong notes never sound.

@@ -91,6 +91,7 @@ public:
         lpZ.fill (0.0f);
         for (int k = 0; k < N; ++k) lfo[(size_t) k] = k / (double) N;
         energy = 0.0f;
+        cSz = cDc = cDp = cFz = -1.0f;   // force a coefficient refresh
     }
 
     struct Params { float size = 0.7f, decayS = 6.0f, predelayMs = 20.0f, mod = 0.4f, damp = 0.4f, reverse = 0.0f; bool freeze = false; bool on = true; };
@@ -132,28 +133,37 @@ public:
 
         // FDN read (modulated)
         static constexpr float baseMs[N] = { 37.0f, 47.0f, 59.0f, 71.0f, 89.0f, 103.0f, 127.0f, 149.0f };
-        const float scale = 0.35f + 0.65f * sz;
         std::array<float, N> y {};
         float sum = 0.0f;
-        // damping: one-pole LP from ~18 kHz (0) to ~2 kHz (1). Freeze bypasses it
-        // completely and trims modulation to 25 % (linear-interpolated modulated reads
-        // low-pass slightly on every pass, which would otherwise drain the frozen tail).
-        const float dampHz = 18000.0f * std::pow (2000.0f / 18000.0f, dp);
-        const float a = std::exp (-2.0f * 3.14159265f * dampHz / (float) sr) * (1.0f - fz);
-        const float mdEff = md * (1.0f - 0.75f * fz);
+
+        // Loop coefficients depend only on size / decay / damping / freeze: recompute
+        // them when one of those smoothed controls moves, not on every sample.
+        //   damping: one-pole LP from ~18 kHz (0) to ~2 kHz (1). Freeze bypasses it
+        //   completely and trims modulation to 25 % (linear-interpolated modulated reads
+        //   low-pass slightly on every pass, which would otherwise drain the frozen tail).
+        if (sz != cSz || dc != cDc || dp != cDp || fz != cFz)
+        {
+            const float dampHz = 18000.0f * std::pow (2000.0f / 18000.0f, dp);
+            dampA = std::exp (-2.0f * 3.14159265f * dampHz / (float) sr) * (1.0f - fz);
+            const float scale = 0.35f + 0.65f * sz;
+            for (int k = 0; k < N; ++k)
+            {
+                lineLen[(size_t) k] = baseMs[k] * scale * 0.001f * (float) sr;
+                const float g = std::pow (10.0f, -3.0f * baseMs[k] * scale * 0.001f / dc);   // RT60 gain
+                lineGain[(size_t) k] = g + fz * (1.0f - g);                                     // frozen → unity
+            }
+            cSz = sz; cDc = dc; cDp = dp; cFz = fz;
+        }
+        const float modSamp = md * (1.0f - 0.75f * fz) * 0.001f * (float) sr;
         for (int k = 0; k < N; ++k)
         {
             lfo[(size_t) k] += lfoInc[(size_t) k];
             if (lfo[(size_t) k] >= 1.0) lfo[(size_t) k] -= 1.0;
-            const float dSamp = baseMs[k] * scale * 0.001f * (float) sr
-                              + mdEff * 0.001f * (float) sr * (float) std::sin (6.283185307 * lfo[(size_t) k]);
+            const float dSamp = lineLen[(size_t) k] + modSamp * fastSin2pi ((float) lfo[(size_t) k]);
             float v = lines[(size_t) k].read (std::max (2.0f, dSamp));
-            v = v + a * (lpZ[(size_t) k] - v);
+            v = v + dampA * (lpZ[(size_t) k] - v);
             lpZ[(size_t) k] = v;
-            // RT60 feedback gain for this line's loop time; frozen → unity
-            const float loopS = baseMs[k] * scale * 0.001f;
-            const float g = std::pow (10.0f, -3.0f * loopS / dc);
-            y[(size_t) k] = v * (g + fz * (1.0f - g));
+            y[(size_t) k] = v * lineGain[(size_t) k];
             sum += y[(size_t) k];
         }
 
@@ -187,6 +197,9 @@ private:
     std::array<double, N> lfo {}, lfoInc {};
     Smooth size, decay, mod, damp, revAmt, preMs, inGain, frz;
     float energy = 0.0f;
+    // cached loop coefficients (see process)
+    std::array<float, N> lineLen {}, lineGain {};
+    float dampA = 0.0f, cSz = -1.0f, cDc = -1.0f, cDp = -1.0f, cFz = -1.0f;
 };
 
 //==============================================================================
@@ -238,7 +251,7 @@ public:
         const float d = timeS.next(), fb = fbS.next(), ig = inGain.next();
         wowPh += 0.4 / sr;
         if (wowPh >= 1.0) wowPh -= 1.0;
-        const float wob = 0.0004f * (float) sr * (float) std::sin (6.283185307 * wowPh);   // ±0.4 ms
+        const float wob = 0.0004f * (float) sr * fastSin2pi ((float) wowPh);   // ±0.4 ms
         const float in[2] = { inL * ig, inR * ig };
         float out[2];
         float e = 0.0f;
