@@ -54,6 +54,11 @@ VaporStringsAudioProcessor::VaporStringsAudioProcessor()
     pWidth      = apvts.getRawParameterValue (ParameterIDs::width);
     pDryWet     = apvts.getRawParameterValue (ParameterIDs::dry_wet);
     pOutGain    = apvts.getRawParameterValue (ParameterIDs::out_gain);
+    pTrackHpf   = apvts.getRawParameterValue (ParameterIDs::track_hpf);
+    pTrackSpeed = apvts.getRawParameterValue (ParameterIDs::track_speed);
+    pTrackSens  = apvts.getRawParameterValue (ParameterIDs::track_sens);
+    pNotePrio   = apvts.getRawParameterValue (ParameterIDs::note_priority);
+    pVelSens    = apvts.getRawParameterValue (ParameterIDs::vel_sens);
 
     jassert (apvts.state.isValid());
     jassert (getParameters().size() == ParamTable::numParams);
@@ -97,6 +102,11 @@ void VaporStringsAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
 
     gateDetector = gateGain = envState = 0.0f;
     gateOpen = false;
+
+    tracker.prepare (sampleRate);   // allocates its ring/diff buffers here, never in processBlock
+    onset.prepare (sampleRate);
+    lastTrackHpf = -1.0f;
+    noteVelocity = 0.0f;
 }
 
 float VaporStringsAudioProcessor::softClip (float x) noexcept
@@ -136,6 +146,17 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float openThresh  = juce::Decibels::decibelsToGain (pGateThresh->load());
     const float closeThresh = openThresh * 0.7079f;                 // 3 dB hysteresis
 
+    // ---- analysis settings ----------------------------------------------------------
+    if (const float hpf = pTrackHpf->load(); hpf != lastTrackHpf)
+    {
+        tracker.setHighPassHz (hpf);
+        lastTrackHpf = hpf;
+    }
+    const float sens = pTrackSens->load();
+    tracker.setResponse (pTrackSpeed->load(), sens,
+                         (vs::PitchTracker::Priority) juce::jlimit (0, 2, (int) pNotePrio->load()));
+    onset.setSensitivity (sens, pVelSens->load());
+
     // ---- input: mono sum + input gain -------------------------------------------
     auto* mono = monoBuf.getWritePointer (0);
     auto* dry  = dryBuf.getWritePointer (0);
@@ -169,6 +190,11 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                             : juce::jmax (0.0f, gateGain - gateRampStep);
 
         const float gated = x * gateGain;
+
+        // analysis path (control signals only; never touches the audio)
+        tracker.push (x, gateOpen);
+        if (onset.push (x, openThresh))
+            noteVelocity = onset.getVelocity();
 
         // envelope follower
         const float ag = std::abs (gated);
@@ -204,6 +230,10 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     VaporMeters::raise (meters.outPeak, outPk);
     meters.env.store (envState, std::memory_order_relaxed);
     meters.gate.store (gateOpen, std::memory_order_relaxed);
+    meters.noteHz.store (gateOpen ? tracker.getHz() : 0.0f, std::memory_order_relaxed);
+    meters.conf.store (tracker.getConfidence(), std::memory_order_relaxed);
+    meters.velocity.store (noteVelocity, std::memory_order_relaxed);
+    meters.onsets.store (onset.getOnsetCount(), std::memory_order_relaxed);
 }
 
 //==============================================================================

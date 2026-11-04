@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include "ParameterIDs.hpp"
+#include "dsp/Analysis.h"
 
 //==============================================================================
 /** Live values the editor streams to the WebView (written on the audio thread,
@@ -18,6 +19,8 @@ struct VaporMeters
     std::atomic<float> noteHz  { 0.0f };  // 0 = unvoiced (tracker arrives in phase 2.1.2)
     std::atomic<float> conf    { 0.0f };
     std::atomic<bool>  gate    { false };
+    std::atomic<float> velocity { 0.0f };
+    std::atomic<uint32_t> onsets { 0 };
 
     static void raise (std::atomic<float>& a, float v) noexcept
     {
@@ -76,6 +79,17 @@ private:
     std::atomic<float>* pWidth      = nullptr;
     std::atomic<float>* pDryWet     = nullptr;
     std::atomic<float>* pOutGain    = nullptr;
+    std::atomic<float>* pTrackHpf   = nullptr;
+    std::atomic<float>* pTrackSpeed = nullptr;
+    std::atomic<float>* pTrackSens  = nullptr;
+    std::atomic<float>* pNotePrio   = nullptr;
+    std::atomic<float>* pVelSens    = nullptr;
+
+    // Analysis (phase 2.1.2): pitch tracker + pick onset/velocity
+    vs::PitchTracker tracker;
+    vs::OnsetDetector onset;
+    float lastTrackHpf = -1.0f;
+    float noteVelocity = 0.0f;     // velocity of the most recent pick (0..1)
 
     // Smoothed controls
     juce::SmoothedValue<float> inGainSm, directSm, outGainSm, dryWetSm, widthSm;

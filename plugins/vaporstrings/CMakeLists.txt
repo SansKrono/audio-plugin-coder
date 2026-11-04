@@ -102,3 +102,10 @@ if(WIN32)
             JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
     )
 endif()
+
+# ============================================
+# OFFLINE TEST HARNESS (not part of normal builds)
+# Pitch tracker / onset checks on synthetic plucks or a DI .wav — see tests/TrackerTest.cpp
+# ============================================
+add_executable(vaporstrings_TrackerTest EXCLUDE_FROM_ALL tests/TrackerTest.cpp)
+target_compile_features(vaporstrings_TrackerTest PRIVATE cxx_std_17)
