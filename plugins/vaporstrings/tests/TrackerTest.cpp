@@ -14,6 +14,7 @@
 #include "../Source/dsp/Shifter.h"
 #include "../Source/dsp/Envelope.h"
 #include "../Source/dsp/FxChain1.h"
+#include "../Source/dsp/FxChain2.h"
 
 #include <cmath>
 #include <cstdio>
@@ -576,6 +577,191 @@ int main (int argc, char** argv)
         }
         std::snprintf (buf, sizeof buf, "deepest 10 ms window %.1f dB over 8 s", minDb);
         check ("wobble dropouts", minDb < -8.0, buf);
+    }
+
+    /* ---------------------------------------------------------------- FX chain II */
+    std::printf ("\n-- FX chain II --\n");
+    // run a send FX at mix 1 (wet only) with an on-switch schedule; returns L, fills R
+    auto runSendFx = [] (auto& fx, std::vector<float> L, std::vector<float>& R, size_t offAt = (size_t) -1)
+    {
+        vs::Smooth mix, onS; mix.prepare (kSr, 1.0f); onS.prepare (kSr, 1.0f); mix.snap (1.0f); onS.snap (1.0f);
+        bool active = false;
+        R = L;
+        const int blk = 256;
+        for (size_t s = 0; s < L.size(); s += blk)
+        {
+            const int n = (int) std::min<size_t> (blk, L.size() - s);
+            vs::runSend (fx, s < offAt, 1.0f, mix, onS, active, L.data() + s, R.data() + s, n);
+        }
+        return L;
+    };
+    auto burst = [] (double seconds, double burstMs, unsigned seed)
+    {
+        std::vector<float> v ((size_t) (seconds * kSr), 0.0f);
+        std::mt19937 rng (seed); std::uniform_real_distribution<float> u (-0.5f, 0.5f);
+        for (size_t i = 0; i < (size_t) (burstMs * 0.001 * kSr); ++i) v[i] = u (rng);
+        return v;
+    };
+    auto envDb = [] (const std::vector<float>& L, const std::vector<float>& R, double winMs)
+    {
+        const size_t w = (size_t) (winMs * 0.001 * kSr);
+        std::vector<double> e;
+        for (size_t s = 0; s + w <= L.size(); s += w)
+        {
+            double a = 0; for (size_t k = 0; k < w; ++k) a += L[s + k] * L[s + k] + R[s + k] * R[s + k];
+            e.push_back (10.0 * std::log10 (a / (double) w + 1e-30));
+        }
+        return e;
+    };
+
+    // RT60 accuracy: time from -5 to -25 dB (re peak) × 3
+    for (float target : { 2.0f, 6.0f })
+    {
+        vs::Haze h; h.prepare (kSr);
+        vs::Haze::Params p; p.decayS = target; p.mod = 0.0f; p.damp = 0.0f; p.predelayMs = 0.0f; p.size = 0.7f;
+        h.setParams (p); h.snap();
+        std::vector<float> R; const auto L = runSendFx (h, burst (target * 1.6, 10.0, 5), R);
+        const auto e = envDb (L, R, 20.0);
+        const double pk = *std::max_element (e.begin(), e.end());
+        int i5 = -1, i25 = -1;
+        const size_t ipk = (size_t) (std::max_element (e.begin(), e.end()) - e.begin());
+        for (size_t k = ipk; k < e.size(); ++k) { if (i5 < 0 && e[k] < pk - 5) i5 = (int) k; if (i25 < 0 && e[k] < pk - 25) { i25 = (int) k; break; } }
+        const double rt = (i5 >= 0 && i25 > i5) ? 3.0 * (i25 - i5) * 0.020 : -1.0;
+        std::snprintf (buf, sizeof buf, "target %.1f s, measured %.2f s", target, rt);
+        check (target < 3 ? "haze RT60 2 s" : "haze RT60 6 s", rt > target * 0.7 && rt < target * 1.3, buf);
+    }
+
+    // freeze: hold the tail; never blow up
+    {
+        vs::Haze h; h.prepare (kSr);
+        vs::Haze::Params p; p.decayS = 3.0f; p.mod = 0.4f; p.damp = 0.4f; h.setParams (p); h.snap();
+        auto in = burst (6.0, 300.0, 6);
+        vs::Smooth mix, onS; mix.prepare (kSr, 1.0f); onS.prepare (kSr, 1.0f); mix.snap (1.0f); onS.snap (1.0f);
+        bool active = false; std::vector<float> L = in, R = in;
+        for (size_t s = 0; s < L.size(); s += 256)
+        {
+            p.freeze = s >= (size_t) (0.5 * kSr); h.setParams (p);
+            vs::runSend (h, true, 1.0f, mix, onS, active, L.data() + s, R.data() + s, (int) std::min<size_t> (256, L.size() - s));
+        }
+        const auto e = envDb (L, R, 100.0);
+        const double at1 = e[10], at5 = e[50];
+        float pk = 0; bool fin = true; for (size_t i = 0; i < L.size(); ++i) { pk = std::max ({ pk, std::abs (L[i]), std::abs (R[i]) }); fin &= std::isfinite (L[i]); }
+        std::snprintf (buf, sizeof buf, "1 s %.1f dB → 5 s %.1f dB, peak %.2f", at1, at5, pk);
+        check ("haze freeze sustains", fin && std::abs (at5 - at1) < 3.0 && pk < 2.0f, buf);
+    }
+
+    // worst-case stability: 30 s decay, size 1, mod 1, no damping, repeated loud bursts
+    {
+        vs::Haze h; h.prepare (kSr);
+        vs::Haze::Params p; p.decayS = 30.0f; p.size = 1.0f; p.mod = 1.0f; p.damp = 0.0f; h.setParams (p); h.snap();
+        std::vector<float> in ((size_t) (20.0 * kSr), 0.0f);
+        std::mt19937 rng (8); std::uniform_real_distribution<float> u (-0.9f, 0.9f);
+        for (int b = 0; b < 10; ++b) for (size_t i = 0; i < 4800; ++i) in[(size_t) (b * 2.0 * kSr) + i] = u (rng);
+        std::vector<float> R; const auto L = runSendFx (h, in, R);
+        float pk = 0; bool fin = true; for (size_t i = 0; i < L.size(); ++i) { pk = std::max ({ pk, std::abs (L[i]), std::abs (R[i]) }); fin &= std::isfinite (L[i]) && std::isfinite (R[i]); }
+        std::snprintf (buf, sizeof buf, "20 s, peak %.2f", pk);
+        check ("haze worst-case stability", fin && pk < 4.0f, buf);
+    }
+
+    // stereo decorrelation of the tail
+    {
+        vs::Haze h; h.prepare (kSr); h.setParams ({}); h.snap();
+        std::vector<float> R; const auto L = runSendFx (h, burst (2.0, 10.0, 9), R);
+        double ab = 0, aa = 0, bb = 0;
+        for (size_t i = (size_t) (0.2 * kSr); i < L.size(); ++i) { ab += L[i] * R[i]; aa += L[i] * L[i]; bb += R[i] * R[i]; }
+        const double c = ab / std::sqrt (aa * bb + 1e-30);
+        std::snprintf (buf, sizeof buf, "tail L/R corr %.2f", c);
+        check ("haze stereo tail", std::abs (c) < 0.5, buf);
+    }
+
+    // reverse swell: wet energy should peak well after the transient
+    {
+        auto peakAt = [&] (float revAmt)
+        {
+            vs::Haze h; h.prepare (kSr);
+            vs::Haze::Params p; p.reverse = revAmt; p.decayS = 1.0f; p.predelayMs = 0.0f; h.setParams (p); h.snap();
+            std::vector<float> R; const auto L = runSendFx (h, burst (1.5, 5.0, 10), R);
+            const auto e = envDb (L, R, 10.0);
+            return 10.0 * (double) (std::max_element (e.begin(), e.end()) - e.begin());
+        };
+        const double p0 = peakAt (0.0f), p1 = peakAt (1.0f);
+        std::snprintf (buf, sizeof buf, "wet peak at %.0f ms → %.0f ms", p0, p1);
+        check ("haze reverse swell", p1 > p0 + 150.0, buf);
+    }
+
+    // spillover: switching off keeps the tail ringing
+    {
+        vs::Haze h; h.prepare (kSr);
+        vs::Haze::Params p; p.decayS = 4.0f; h.setParams (p); h.snap();
+        std::vector<float> R;
+        const auto L = runSendFx (h, burst (3.0, 300.0, 11), R, (size_t) (0.5 * kSr));
+        const auto e = envDb (L, R, 50.0);
+        const double before = e[9], after = e[16];   // 450 ms vs 800 ms (switched off at 500 ms)
+        std::snprintf (buf, sizeof buf, "450 ms %.1f dB, 800 ms (off) %.1f dB", before, after);
+        check ("haze tail spillover", after > before - 12.0 && after < before, buf);
+    }
+
+    // echo: free time, sync, feedback ratio, stability
+    auto echoRun = [&] (vs::Echo::Params ep, std::vector<float> in)
+    {
+        vs::Echo e; e.prepare (kSr); e.setParams (ep); e.snap();
+        std::vector<float> R; auto L = runSendFx (e, std::move (in), R);
+        return L;
+    };
+    auto firstPeaks = [] (const std::vector<float>& L, int count, size_t from)
+    {
+        std::vector<std::pair<size_t, float>> pk;
+        size_t i = from;
+        while ((int) pk.size() < count && i < L.size())
+        {
+            if (std::abs (L[i]) > 0.02f)
+            {
+                size_t best = i; for (size_t k = i; k < std::min (L.size(), i + 960); ++k) if (std::abs (L[k]) > std::abs (L[best])) best = k;
+                pk.push_back ({ best, std::abs (L[best]) });
+                i = best + 2400;
+            }
+            else ++i;
+        }
+        return pk;
+    };
+    std::vector<float> click ((size_t) (2.0 * kSr), 0.0f); click[0] = 1.0f; click[1] = -0.5f;
+    {
+        vs::Echo::Params ep; ep.sync = false; ep.timeMs = 250.0f; ep.feedback = 0.0f; ep.tone = 1.0f;
+        const auto L = echoRun (ep, click);
+        const auto pk = firstPeaks (L, 1, 10);
+        const double ms = pk.empty() ? -1 : 1000.0 * pk[0].first / kSr;
+        std::snprintf (buf, sizeof buf, "first repeat at %.1f ms", ms);
+        check ("echo free 250 ms", std::abs (ms - 250.0) < 2.0, buf);
+    }
+    {
+        vs::Echo::Params ep; ep.sync = true; ep.division = 8; ep.bpm = 120.0; ep.feedback = 0.0f; ep.tone = 1.0f;
+        const auto L = echoRun (ep, click);
+        const auto pk = firstPeaks (L, 1, 10);
+        const double ms = pk.empty() ? -1 : 1000.0 * pk[0].first / kSr;
+        std::snprintf (buf, sizeof buf, "1/4 @ 120 BPM → %.1f ms", ms);
+        check ("echo synced 1/4", std::abs (ms - 500.0) < 2.0, buf);
+    }
+    {
+        vs::Echo::Params ep; ep.sync = false; ep.timeMs = 200.0f; ep.feedback = 0.5f; ep.tone = 0.5f;
+        std::vector<float> tone ((size_t) (1.0 * kSr), 0.0f);
+        for (size_t i = 0; i < 2400; ++i) tone[i] = 0.3f * (float) std::sin (6.2831853 * 1000.0 * (double) i / kSr) * (float) std::sin (3.14159265 * (double) i / 2400.0);
+        const auto L = echoRun (ep, tone);
+        double e1 = 0, e2 = 0;
+        for (size_t i = (size_t) (0.19 * kSr); i < (size_t) (0.27 * kSr); ++i) e1 += L[i] * L[i];
+        for (size_t i = (size_t) (0.39 * kSr); i < (size_t) (0.47 * kSr); ++i) e2 += L[i] * L[i];
+        const double ratioDb = 10.0 * std::log10 (e2 / (e1 + 1e-30));
+        std::snprintf (buf, sizeof buf, "repeat 2 vs 1: %+.1f dB (fb 0.5 ≈ -6)", ratioDb);
+        check ("echo feedback ratio", ratioDb < -4.0 && ratioDb > -9.0, buf);
+    }
+    {
+        vs::Echo::Params ep; ep.sync = false; ep.timeMs = 120.0f; ep.feedback = 0.95f; ep.tone = 1.0f;
+        std::vector<float> in ((size_t) (10.0 * kSr));
+        std::mt19937 rng (12); std::uniform_real_distribution<float> u (-0.9f, 0.9f);
+        for (auto& v : in) v = u (rng);
+        const auto L = echoRun (ep, in);
+        float pk = 0; bool fin = true; for (float v : L) { pk = std::max (pk, std::abs (v)); fin &= std::isfinite (v); }
+        std::snprintf (buf, sizeof buf, "10 s full-scale noise, fb 95%%, peak %.2f", pk);
+        check ("echo stability", fin && pk < 2.0f, buf);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED", failures, failures == 1 ? "" : "s");

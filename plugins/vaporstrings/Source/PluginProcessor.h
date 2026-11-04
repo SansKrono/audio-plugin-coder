@@ -11,6 +11,7 @@
 #include "dsp/Shifter.h"
 #include "dsp/Envelope.h"
 #include "dsp/FxChain1.h"
+#include "dsp/FxChain2.h"
 
 //==============================================================================
 /** Live values the editor streams to the WebView (written on the audio thread,
@@ -146,6 +147,17 @@ private:
     std::atomic<float>* pEnsDepth = nullptr; std::atomic<float>* pEnsMix = nullptr;
     std::atomic<float>* pWobOn   = nullptr; std::atomic<float>* pWobWow = nullptr; std::atomic<float>* pWobFlutter = nullptr;
     std::atomic<float>* pWobAge  = nullptr; std::atomic<float>* pWobDrop = nullptr;
+
+    // FX chain II (phase 2.1.7): Haze → Echo, send-style with tail spillover
+    vs::Haze fxHaze;  vs::Smooth hazeMix, hazeOnS;  bool hazeActive = false;
+    vs::Echo fxEcho;  vs::Smooth echoMix, echoOnS;  bool echoActive = false;
+    std::atomic<float>* pHazeOn = nullptr;  std::atomic<float>* pHazeSize = nullptr; std::atomic<float>* pHazeDecay = nullptr;
+    std::atomic<float>* pHazePre = nullptr; std::atomic<float>* pHazeMod = nullptr;  std::atomic<float>* pHazeDamp = nullptr;
+    std::atomic<float>* pHazeRev = nullptr; std::atomic<float>* pHazeFrz = nullptr;  std::atomic<float>* pHazeMix = nullptr;
+    std::atomic<float>* pEchoOn = nullptr;  std::atomic<float>* pEchoSync = nullptr; std::atomic<float>* pEchoTime = nullptr;
+    std::atomic<float>* pEchoDiv = nullptr; std::atomic<float>* pEchoFb = nullptr;   std::atomic<float>* pEchoTone = nullptr;
+    std::atomic<float>* pEchoMix = nullptr;
+    double hostBpm = 120.0;
 
     // Smoothed controls
     juce::SmoothedValue<float> inGainSm, directSm, outGainSm, dryWetSm, widthSm;

@@ -98,6 +98,12 @@ VaporStringsAudioProcessor::VaporStringsAudioProcessor()
     pEnsDepth = P (ParameterIDs::ens_depth); pEnsMix = P (ParameterIDs::ens_mix);
     pWobOn = P (ParameterIDs::wob_on);     pWobWow = P (ParameterIDs::wob_wow);        pWobFlutter = P (ParameterIDs::wob_flutter);
     pWobAge = P (ParameterIDs::wob_age);   pWobDrop = P (ParameterIDs::wob_dropout);
+    pHazeOn = P (ParameterIDs::haze_on);   pHazeSize = P (ParameterIDs::haze_size);    pHazeDecay = P (ParameterIDs::haze_decay);
+    pHazePre = P (ParameterIDs::haze_predelay); pHazeMod = P (ParameterIDs::haze_mod); pHazeDamp = P (ParameterIDs::haze_damp);
+    pHazeRev = P (ParameterIDs::haze_reverse);  pHazeFrz = P (ParameterIDs::haze_freeze); pHazeMix = P (ParameterIDs::haze_mix);
+    pEchoOn = P (ParameterIDs::echo_on);   pEchoSync = P (ParameterIDs::echo_sync);    pEchoTime = P (ParameterIDs::echo_time);
+    pEchoDiv = P (ParameterIDs::echo_div); pEchoFb = P (ParameterIDs::echo_fb);        pEchoTone = P (ParameterIDs::echo_tone);
+    pEchoMix = P (ParameterIDs::echo_mix);
 
     jassert (apvts.state.isValid());
     jassert (getParameters().size() == ParamTable::numParams);
@@ -170,6 +176,14 @@ void VaporStringsAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     fxDrive.prepare (sampleRate); bpDrive.prepare (sampleRate);
     fxEns.prepare (sampleRate);   bpEns.prepare (sampleRate);
     fxWob.prepare (sampleRate);   bpWob.prepare (sampleRate);
+
+    fxHaze.prepare (sampleRate);  hazeActive = false;
+    fxEcho.prepare (sampleRate);  echoActive = false;
+    for (auto* s : { &hazeMix, &hazeOnS, &echoMix, &echoOnS })
+    {
+        s->prepare (sampleRate, 15.0f);
+        s->snap (0.0f);
+    }
 
     gateDetector = gateGain = envState = 0.0f;
     gateOpen = false;
@@ -386,6 +400,30 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     vs::runInsert (bpDrive, pDriveOn->load() > 0.5f, fxDrive, wetL, wetR, numSamples);
     vs::runInsert (bpEns,   pEnsOn->load()   > 0.5f, fxEns,   wetL, wetR, numSamples);
     vs::runInsert (bpWob,   pWobOn->load()   > 0.5f, fxWob,   wetL, wetR, numSamples);
+
+    // ---- FX chain II: Haze → Echo (tails spill over when switched off) -------------
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+            if (auto bpm = pos->getBpm())
+                hostBpm = *bpm;
+
+    {
+        vs::Haze::Params hp;
+        hp.size = pHazeSize->load();      hp.decayS = pHazeDecay->load();  hp.predelayMs = pHazePre->load();
+        hp.mod = pHazeMod->load();        hp.damp = pHazeDamp->load();     hp.reverse = pHazeRev->load();
+        hp.freeze = pHazeFrz->load() > 0.5f;
+        hp.on = pHazeOn->load() > 0.5f;
+        fxHaze.setParams (hp);
+        vs::runSend (fxHaze, hp.on, pHazeMix->load(), hazeMix, hazeOnS, hazeActive, wetL, wetR, numSamples);
+    }
+    {
+        vs::Echo::Params ep;
+        ep.sync = pEchoSync->load() > 0.5f;  ep.timeMs = pEchoTime->load();  ep.division = (int) pEchoDiv->load();
+        ep.bpm = hostBpm;                    ep.feedback = pEchoFb->load();  ep.tone = pEchoTone->load();
+        ep.on = pEchoOn->load() > 0.5f;
+        fxEcho.setParams (ep);
+        vs::runSend (fxEcho, ep.on, pEchoMix->load(), echoMix, echoOnS, echoActive, wetL, wetR, numSamples);
+    }
 
     // ---- output: dry/wet, gain, safety clip --------------------------------------
     auto* outL = buffer.getWritePointer (0);
