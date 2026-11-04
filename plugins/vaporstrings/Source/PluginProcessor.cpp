@@ -60,6 +60,19 @@ VaporStringsAudioProcessor::VaporStringsAudioProcessor()
     pNotePrio   = apvts.getRawParameterValue (ParameterIDs::note_priority);
     pVelSens    = apvts.getRawParameterValue (ParameterIDs::vel_sens);
 
+    pGlide    = apvts.getRawParameterValue (ParameterIDs::glide);
+    pSynthLvl = apvts.getRawParameterValue (ParameterIDs::src_synth_lvl);
+    pOsc1Wave = apvts.getRawParameterValue (ParameterIDs::osc1_wave);
+    pOsc1Oct  = apvts.getRawParameterValue (ParameterIDs::osc1_oct);
+    pOsc2Wave = apvts.getRawParameterValue (ParameterIDs::osc2_wave);
+    pOsc2Oct  = apvts.getRawParameterValue (ParameterIDs::osc2_oct);
+    pOsc2Det  = apvts.getRawParameterValue (ParameterIDs::osc2_detune);
+    pOscMix   = apvts.getRawParameterValue (ParameterIDs::osc_mix);
+    pPulseW   = apvts.getRawParameterValue (ParameterIDs::pulse_width);
+    pUnison   = apvts.getRawParameterValue (ParameterIDs::unison);
+    pSpread   = apvts.getRawParameterValue (ParameterIDs::unison_spread);
+    pSubLvl   = apvts.getRawParameterValue (ParameterIDs::sub_lvl);
+
     jassert (apvts.state.isValid());
     jassert (getParameters().size() == ParamTable::numParams);
 }
@@ -99,6 +112,13 @@ void VaporStringsAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
 
     monoBuf.setSize (1, samplesPerBlock, false, true, false);
     dryBuf .setSize (1, samplesPerBlock, false, true, false);
+    wetBuf .setSize (2, samplesPerBlock, false, true, false);
+
+    synth.prepare (sampleRate);
+    synthLvlSm.reset (sampleRate, 0.02);
+    synthLvlSm.setCurrentAndTargetValue (levelDbToGain (pSynthLvl->load()));
+    confGain = 0.0f;
+    confCoef = coef (25.0f);
 
     gateDetector = gateGain = envState = 0.0f;
     gateOpen = false;
@@ -131,6 +151,7 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     {
         monoBuf.setSize (1, numSamples, false, false, true);
         dryBuf .setSize (1, numSamples, false, false, true);
+        wetBuf .setSize (2, numSamples, false, false, true);
     }
 
     const int numIn  = juce::jmin (getTotalNumInputChannels(), buffer.getNumChannels());
@@ -157,6 +178,24 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                          (vs::PitchTracker::Priority) juce::jlimit (0, 2, (int) pNotePrio->load()));
     onset.setSensitivity (sens, pVelSens->load());
 
+    // ---- synth settings ---------------------------------------------------------------
+    {
+        vs::SynthSource::Params sp;
+        sp.wave1 = (vs::SynthSource::Wave) juce::jlimit (0, 4, (int) pOsc1Wave->load());
+        sp.wave2 = (vs::SynthSource::Wave) juce::jlimit (0, 4, (int) pOsc2Wave->load());
+        sp.oct1 = juce::roundToInt (pOsc1Oct->load());
+        sp.oct2 = juce::roundToInt (pOsc2Oct->load());
+        sp.detune2Cents = pOsc2Det->load();
+        sp.oscMix = pOscMix->load();
+        sp.pulseWidth = pPulseW->load();
+        sp.unison = juce::roundToInt (pUnison->load());
+        sp.spread = pSpread->load();
+        sp.subLevel = pSubLvl->load();
+        sp.glideMs = pGlide->load();
+        synth.setParams (sp);
+    }
+    synthLvlSm.setTargetValue (levelDbToGain (pSynthLvl->load()));
+
     // ---- input: mono sum + input gain -------------------------------------------
     auto* mono = monoBuf.getWritePointer (0);
     auto* dry  = dryBuf.getWritePointer (0);
@@ -173,6 +212,8 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     float inPk = 0.0f, outPk = 0.0f;
+    auto* wetL = wetBuf.getWritePointer (0);
+    auto* wetR = wetBuf.getWritePointer (1);
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -201,8 +242,19 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         envState = ag > envState ? envAtkCoef * (envState - ag) + ag
                                  : envRelCoef * (envState - ag) + ag;
 
-        // [A] Direct source — the only sound source in phase 2.1.1
-        mono[i] = gated * directSm.getNextValue();
+        // [A] Direct source (mono, centred)
+        const float direct = gated * directSm.getNextValue();
+
+        // [C] Synth source. Until the Voice envelopes land (2.1.5) its level follows
+        // the guitar envelope, and fades out when tracking confidence is low (chords).
+        const float confTarget = gateOpen ? juce::jlimit (0.0f, 1.0f, (tracker.getConfidence() - 0.35f) / 0.3f) : 0.0f;
+        confGain = confTarget + confCoef * (confGain - confTarget);
+        const float synthAmp = juce::jmin (1.0f, envState * 3.0f) * confGain * synthLvlSm.getNextValue();
+        float sl = 0.0f, sr = 0.0f;
+        synth.tick (tracker.getHz(), synthAmp, sl, sr);
+
+        wetL[i] = direct + sl;
+        wetR[i] = direct + sr;
     }
 
     // ---- output: dry/wet, gain, safety clip --------------------------------------
@@ -215,12 +267,17 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const float gDry = std::cos (mix * juce::MathConstants<float>::halfPi);
         const float gWet = std::sin (mix * juce::MathConstants<float>::halfPi);
         const float g = outGainSm.getNextValue();
-        widthSm.getNextValue(); // processed chain is still mono; width acts once stereo sources exist
+        const float w = widthSm.getNextValue();
 
-        const float y = softClip ((dry[i] * gDry + mono[i] * gWet) * g);
-        outPk = juce::jmax (outPk, std::abs (y));
-        outL[i] = y;
-        if (outR != nullptr) outR[i] = y;
+        // M/S width on the wet bus (0 = mono, 1 = as is, 2 = double side)
+        const float mid  = 0.5f * (wetL[i] + wetR[i]);
+        const float side = 0.5f * (wetL[i] - wetR[i]) * w;
+
+        const float yl = softClip ((dry[i] * gDry + (mid + side) * gWet) * g);
+        const float yr = softClip ((dry[i] * gDry + (mid - side) * gWet) * g);
+        outPk = juce::jmax (outPk, std::abs (yl), std::abs (yr));
+        if (outR != nullptr) { outL[i] = yl; outR[i] = yr; }
+        else                 { outL[i] = 0.5f * (yl + yr); }
     }
 
     for (int ch = 2; ch < numOut; ++ch)

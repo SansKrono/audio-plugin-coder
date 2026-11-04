@@ -10,6 +10,7 @@
     Exit code 0 = all synthetic checks passed.                                   */
 
 #include "../Source/dsp/Analysis.h"
+#include "../Source/dsp/Synth.h"
 
 #include <cmath>
 #include <cstdio>
@@ -220,6 +221,86 @@ int main (int argc, char** argv)
         std::printf ("onset @ %-8.1f %zu onsets, vel:", hz, vel.size());
         for (float v : vel) std::printf (" %.2f", v);
         std::printf (" %10s\n", ok ? "PASS" : "FAIL");
+    }
+
+    /* ---------------------------------------------------------------- synth source [C] */
+    std::printf ("\n-- synth source --\n");
+    using Wave = vs::SynthSource::Wave;
+    auto renderSynth = [] (vs::SynthSource::Params p, float hz, double seconds, std::vector<float>& L, std::vector<float>& R)
+    {
+        vs::SynthSource s; s.prepare (kSr); s.setParams (p);
+        L.assign ((size_t) (seconds * kSr), 0.0f); R = L;
+        for (size_t i = 0; i < L.size(); ++i) s.tick (hz, 1.0f, L[i], R[i]);
+    };
+    auto check = [&failures] (const char* name, bool ok, const char* detail)
+    {
+        failures += ok ? 0 : 1;
+        std::printf ("%-28s %-40s %s\n", name, detail, ok ? "PASS" : "FAIL");
+    };
+    char buf[128];
+
+    // pitch per waveform: render at 220 Hz, read it back with the tracker
+    const struct { Wave w; float pw; const char* name; } waves[] = {
+        { Wave::Saw, 0.5f, "saw @220" }, { Wave::Square, 0.5f, "square @220" }, { Wave::Pulse, 0.25f, "pulse 25% @220" },
+        { Wave::Triangle, 0.5f, "triangle @220" }, { Wave::Sine, 0.5f, "sine @220" } };
+    for (const auto& wv : waves)
+    {
+        vs::SynthSource::Params p; p.wave1 = wv.w; p.oscMix = 0.0f; p.pulseWidth = wv.pw; p.unison = 1;
+        std::vector<float> L, R; renderSynth (p, 220.0f, 1.0, L, R);
+        const auto r = run (L, 220.0);
+        double mean = 0; for (float v : L) mean += v; mean /= (double) L.size();
+        std::snprintf (buf, sizeof buf, "inTune %d/%d, DC %+.4f", r.inTune, r.voiced, mean);
+        check (wv.name, r.voiced > 0 && r.inTune == r.voiced && std::abs (mean) < 0.02, buf);
+    }
+
+    // octave switch: osc1 +1 oct → 440
+    {
+        vs::SynthSource::Params p; p.oct1 = 1; p.oscMix = 0.0f;
+        std::vector<float> L, R; renderSynth (p, 220.0f, 1.0, L, R);
+        const auto r = run (L, 440.0);
+        std::snprintf (buf, sizeof buf, "inTune %d/%d", r.inTune, r.voiced);
+        check ("osc1 +1 oct → 440 Hz", r.voiced > 0 && r.inTune == r.voiced, buf);
+    }
+
+    // headroom: 7-voice saw unison on both oscs + full sub must not exceed 1.0
+    {
+        vs::SynthSource::Params p; p.wave1 = p.wave2 = Wave::Saw; p.unison = 7; p.spread = 1.0f; p.subLevel = 1.0f; p.oscMix = 0.5f;
+        std::vector<float> L, R; renderSynth (p, 82.41f, 2.0, L, R);
+        float pk = 0; bool finite = true;
+        for (size_t i = 0; i < L.size(); ++i) { pk = std::max ({ pk, std::abs (L[i]), std::abs (R[i]) }); finite &= std::isfinite (L[i]) && std::isfinite (R[i]); }
+        std::snprintf (buf, sizeof buf, "peak %.3f", pk);
+        check ("unison 7 + sub headroom", finite && pk < 1.0f, buf);
+    }
+
+    // stereo: unison 1 is mono, unison 5 + spread is wide
+    {
+        auto corr = [] (const std::vector<float>& a, const std::vector<float>& b)
+        {
+            double ab = 0, aa = 0, bb = 0;
+            for (size_t i = 0; i < a.size(); ++i) { ab += a[i] * b[i]; aa += a[i] * a[i]; bb += b[i] * b[i]; }
+            return ab / std::sqrt (aa * bb + 1e-12);
+        };
+        vs::SynthSource::Params p; p.unison = 1;
+        std::vector<float> L, R; renderSynth (p, 220.0f, 1.0, L, R);
+        const double c1 = corr (L, R);
+        p.unison = 5; p.spread = 1.0f; renderSynth (p, 220.0f, 1.0, L, R);
+        const double c5 = corr (L, R);
+        std::snprintf (buf, sizeof buf, "corr mono %.3f, wide %.3f", c1, c5);
+        check ("unison stereo image", c1 > 0.999 && c5 < 0.9, buf);
+    }
+
+    // glide: 110 → 220 Hz with 100 ms glide: mid-way after 30 ms, arrived by 600 ms
+    {
+        vs::SynthSource s; s.prepare (kSr);
+        vs::SynthSource::Params p; p.glideMs = 100.0f; s.setParams (p);
+        float l, r;
+        for (int i = 0; i < 4800; ++i) s.tick (110.0f, 1.0f, l, r);
+        for (int i = 0; i < (int) (0.03 * kSr); ++i) s.tick (220.0f, 1.0f, l, r);
+        const float at30 = s.getCurrentHz();
+        for (int i = 0; i < (int) (0.57 * kSr); ++i) s.tick (220.0f, 1.0f, l, r);
+        const float at600 = s.getCurrentHz();
+        std::snprintf (buf, sizeof buf, "30 ms: %.1f Hz, 600 ms: %.2f Hz", at30, at600);
+        check ("glide 100 ms", at30 > 115.0f && at30 < 210.0f && std::abs (1200.0 * std::log2 (at600 / 220.0)) < 5.0, buf);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED", failures, failures == 1 ? "" : "s");

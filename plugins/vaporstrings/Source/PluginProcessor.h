@@ -7,6 +7,7 @@
 #include <atomic>
 #include "ParameterIDs.hpp"
 #include "dsp/Analysis.h"
+#include "dsp/Synth.h"
 
 //==============================================================================
 /** Live values the editor streams to the WebView (written on the audio thread,
@@ -90,6 +91,19 @@ private:
     vs::OnsetDetector onset;
     float lastTrackHpf = -1.0f;
     float noteVelocity = 0.0f;     // velocity of the most recent pick (0..1)
+
+    // Synth source [C] (phase 2.1.3)
+    vs::SynthSource synth;
+    std::atomic<float>* pGlide = nullptr;
+    std::atomic<float>* pSynthLvl = nullptr;
+    std::atomic<float>* pOsc1Wave = nullptr;  std::atomic<float>* pOsc1Oct = nullptr;
+    std::atomic<float>* pOsc2Wave = nullptr;  std::atomic<float>* pOsc2Oct = nullptr;
+    std::atomic<float>* pOsc2Det  = nullptr;  std::atomic<float>* pOscMix  = nullptr;
+    std::atomic<float>* pPulseW   = nullptr;  std::atomic<float>* pUnison  = nullptr;
+    std::atomic<float>* pSpread   = nullptr;  std::atomic<float>* pSubLvl  = nullptr;
+    juce::SmoothedValue<float> synthLvlSm;
+    float confGain = 0.0f, confCoef = 0.0f;   // fades source C in/out with tracker confidence
+    juce::AudioBuffer<float> wetBuf;          // stereo wet bus (direct + synth)
 
     // Smoothed controls
     juce::SmoothedValue<float> inGainSm, directSm, outGainSm, dryWetSm, widthSm;
