@@ -13,6 +13,7 @@
 #include "../Source/dsp/Synth.h"
 #include "../Source/dsp/Shifter.h"
 #include "../Source/dsp/Envelope.h"
+#include "../Source/dsp/FxChain1.h"
 
 #include <cmath>
 #include <cstdio>
@@ -455,6 +456,126 @@ int main (int argc, char** argv)
         for (int i = 0; i < 1000; ++i) e.tick (0.3f, true);
         std::snprintf (buf, sizeof buf, "level %.2f, contour %.2f", e.level(), e.shape());
         check ("ADSR idle before first pick", e.level() == 0.0f && e.shape() == 0.0f, buf);
+    }
+
+    /* ---------------------------------------------------------------- FX chain I */
+    std::printf ("\n-- FX chain I --\n");
+    auto runFx = [] (auto& fx, bool on, std::vector<float> L, std::vector<float>& R)   // returns L, fills R
+    {
+        vs::Bypass bp; bp.prepare (kSr);
+        R = L;
+        vs::runInsert (bp, on, fx, L.data(), R.data(), (int) L.size());
+        return L;
+    };
+    double g3 = 196.0;
+    const auto g3src = pluck (196.0, 1.5, 0.4, 91, &g3);
+    std::vector<float> sine440 ((size_t) (3.0 * kSr)), sine10k ((size_t) kSr);
+    for (size_t i = 0; i < sine440.size(); ++i) sine440[i] = 0.4f * (float) std::sin (2.0 * 3.14159265 * 440.0 * (double) i / kSr);
+    for (size_t i = 0; i < sine10k.size(); ++i) sine10k[i] = 0.4f * (float) std::sin (2.0 * 3.14159265 * 10000.0 * (double) i / kSr);
+
+    // bypass: a disabled FX is bit-exact
+    {
+        vs::Drive d; d.prepare (kSr); d.setParams (vs::Drive::Mode::Fuzz, 1.0f, 0.5f);
+        std::vector<float> R; const auto L = runFx (d, false, g3src, R);
+        check ("bypass bit-exact", L == g3src && R == g3src, "Fuzz 100% switched off");
+    }
+
+    // slowdown
+    for (float st : { -12.0f, 5.0f })
+    {
+        vs::Slowdown s; s.prepare (kSr); s.setParams (st, 0.0f);
+        std::vector<float> R; const auto L = runFx (s, true, g3src, R);
+        const auto r = run (L, g3 * std::exp2 (st / 12.0));
+        std::snprintf (buf, sizeof buf, "inTune %d/%d, octErr %d", r.inTune, r.voiced, r.octaveErr);
+        check (st < 0 ? "slowdown -12 st" : "slowdown +5 st", r.voiced > 0 && r.inTune >= r.voiced * 0.8 && r.octaveErr * 20 < r.voiced, buf);
+    }
+
+    // drive: every mode keeps pitch and stays bounded
+    const char* driveNames[] = { "drive tape 50%", "drive tube 50%", "drive fuzz 50%", "drive bitcrush 50%" };
+    for (int m = 0; m < 4; ++m)
+    {
+        vs::Drive d; d.prepare (kSr); d.setParams ((vs::Drive::Mode) m, 0.5f, 0.5f); d.snap();
+        std::vector<float> R; const auto L = runFx (d, true, g3src, R);
+        float pk = 0; bool fin = true;
+        for (float v : L) { pk = std::max (pk, std::abs (v)); fin &= std::isfinite (v); }
+        const auto r = run (L, g3);
+        std::snprintf (buf, sizeof buf, "inTune %d/%d, peak %.2f", r.inTune, r.voiced, pk);
+        check (driveNames[m], fin && pk < 1.2f && r.voiced > 0 && r.inTune >= r.voiced * 0.9, buf);
+    }
+    {
+        vs::Drive d; d.prepare (kSr); d.setParams (vs::Drive::Mode::Bitcrush, 1.0f, 0.5f); d.snap();
+        d.setParams (vs::Drive::Mode::Bitcrush, 1.0f, 0.5f);
+        // measure the quantiser before the tilt EQ: tone 0.5 = flat, so tilt is unity except the one-pole split
+        std::vector<float> in (4800); for (size_t i = 0; i < in.size(); ++i) in[i] = 0.9f * (float) std::sin (6.2831853 * 100.0 * (double) i / kSr);
+        std::vector<float> R; const auto L = runFx (d, true, in, R);
+        std::vector<float> q (L.begin() + 2400, L.end()); std::sort (q.begin(), q.end());
+        const size_t distinct = (size_t) (std::unique (q.begin(), q.end(), [] (float a, float b) { return std::abs (a - b) < 1e-4f; }) - q.begin());
+        std::snprintf (buf, sizeof buf, "%zu distinct levels (3-bit → ≤ 9)", distinct);
+        check ("bitcrush 100% quantises", distinct <= 9, buf);
+    }
+    {
+        auto hf = [] (const std::vector<float>& v) { double s = 0; for (size_t i = 1; i < v.size(); ++i) s += (v[i] - v[i - 1]) * (v[i] - v[i - 1]); return s; };
+        vs::Drive dark, bright; dark.prepare (kSr); bright.prepare (kSr);
+        dark.setParams (vs::Drive::Mode::Tape, 0.3f, 0.0f); dark.snap();
+        bright.setParams (vs::Drive::Mode::Tape, 0.3f, 1.0f); bright.snap();
+        std::vector<float> R1, R2; const auto a = runFx (dark, true, g3src, R1); const auto b = runFx (bright, true, g3src, R2);
+        const double ratioDb = 10.0 * std::log10 (hf (b) / hf (a));
+        std::snprintf (buf, sizeof buf, "bright vs dark HF %+.1f dB", ratioDb);
+        check ("drive tone tilt", ratioDb > 6.0, buf);
+    }
+
+    // ensemble
+    {
+        vs::Ensemble e; e.prepare (kSr); e.setParams (vs::Ensemble::Mode::Ensemble, 0.6f, 0.5f, 1.0f); e.snap();
+        std::vector<float> R; const auto L = runFx (e, true, g3src, R);
+        double ab = 0, aa = 0, bb = 0;
+        for (size_t i = 4800; i < L.size(); ++i) { ab += L[i] * R[i]; aa += L[i] * L[i]; bb += R[i] * R[i]; }
+        const double c = ab / std::sqrt (aa * bb + 1e-12);
+        const double lvl = 20.0 * std::log10 (rms (L, 4800) / rms (g3src, 4800));
+        const auto r = run (L, g3);
+        std::snprintf (buf, sizeof buf, "L/R corr %.2f, level %+.1f dB, inTune %d/%d", c, lvl, r.inTune, r.voiced);
+        check ("ensemble width/pitch/level", c < 0.95 && std::abs (lvl) < 4.0 && r.voiced > 0 && r.inTune >= r.voiced * 0.9, buf);
+    }
+
+    // wobble: wow pitch modulation within tape-like bounds
+    {
+        vs::Wobble w; w.prepare (kSr); w.setParams (1.0f, 0.0f, 0.0f, 0.0f); w.snap();
+        std::vector<float> R; const auto L = runFx (w, true, sine440, R);
+        vs::PitchTracker t; t.prepare (kSr); t.setResponse (1.0f, 0.5f, vs::PitchTracker::Priority::Last);
+        double sum = 0, sum2 = 0; int n = 0; double maxDev = 0;
+        for (size_t i = 0; i < L.size(); ++i)
+        {
+            t.push (L[i], true);
+            if (i % 256 == 0 && i > (size_t) kSr / 2 && t.isVoiced())
+            { const double c = 1200.0 * std::log2 (t.getHz() / 440.0); sum += c; sum2 += c * c; ++n; maxDev = std::max (maxDev, std::abs (c)); }
+        }
+        const double sd = n ? std::sqrt (std::max (0.0, sum2 / n - (sum / n) * (sum / n))) : 0;
+        std::snprintf (buf, sizeof buf, "pitch sd %.1f ct, max %.1f ct", sd, maxDev);
+        check ("wobble wow 100%", sd > 3.0 && maxDev < 80.0, buf);
+    }
+    // wobble: age darkens highs
+    {
+        vs::Wobble a0, a1; a0.prepare (kSr); a1.prepare (kSr);
+        a0.setParams (0, 0, 0.0f, 0); a0.snap(); a1.setParams (0, 0, 1.0f, 0); a1.snap();
+        std::vector<float> R0, R1; const auto x0 = runFx (a0, true, sine10k, R0); const auto x1 = runFx (a1, true, sine10k, R1);
+        const double att = 20.0 * std::log10 (rms (x1, 4800) / rms (x0, 4800));
+        std::snprintf (buf, sizeof buf, "10 kHz %.1f dB at age 100%%", att);
+        check ("wobble age LPF", att < -12.0, buf);
+    }
+    // wobble: dropouts dip the level
+    {
+        vs::Wobble w; w.prepare (kSr); w.setParams (0, 0, 0, 1.0f); w.snap();
+        std::vector<float> longSine ((size_t) (8.0 * kSr));
+        for (size_t i = 0; i < longSine.size(); ++i) longSine[i] = 0.4f * (float) std::sin (2.0 * 3.14159265 * 440.0 * (double) i / kSr);
+        std::vector<float> R; const auto L = runFx (w, true, longSine, R);
+        double minDb = 0; const int win = (int) (0.01 * kSr);
+        for (size_t s = 4800; s + (size_t) win < L.size(); s += (size_t) win)
+        {
+            double e = 0; for (int k = 0; k < win; ++k) e += L[s + (size_t) k] * L[s + (size_t) k];
+            minDb = std::min (minDb, 10.0 * std::log10 (e / win / (0.08) + 1e-12));   // 0.08 = sine power
+        }
+        std::snprintf (buf, sizeof buf, "deepest 10 ms window %.1f dB over 8 s", minDb);
+        check ("wobble dropouts", minDb < -8.0, buf);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED", failures, failures == 1 ? "" : "s");

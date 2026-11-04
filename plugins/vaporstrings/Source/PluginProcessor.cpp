@@ -90,6 +90,15 @@ VaporStringsAudioProcessor::VaporStringsAudioProcessor()
     pSus      = apvts.getRawParameterValue (ParameterIDs::env_sustain);
     pRel      = apvts.getRawParameterValue (ParameterIDs::env_release);
 
+    auto P = [this] (const char* id) { return apvts.getRawParameterValue (id); };
+    pSlowOn = P (ParameterIDs::slow_on);   pSlowPitch = P (ParameterIDs::slow_pitch);  pSlowDrift = P (ParameterIDs::slow_drift);
+    pDriveOn = P (ParameterIDs::drive_on); pDriveMode = P (ParameterIDs::drive_mode);
+    pDriveAmt = P (ParameterIDs::drive_amt); pDriveTone = P (ParameterIDs::drive_tone);
+    pEnsOn = P (ParameterIDs::ens_on);     pEnsMode = P (ParameterIDs::ens_mode);      pEnsRate = P (ParameterIDs::ens_rate);
+    pEnsDepth = P (ParameterIDs::ens_depth); pEnsMix = P (ParameterIDs::ens_mix);
+    pWobOn = P (ParameterIDs::wob_on);     pWobWow = P (ParameterIDs::wob_wow);        pWobFlutter = P (ParameterIDs::wob_flutter);
+    pWobAge = P (ParameterIDs::wob_age);   pWobDrop = P (ParameterIDs::wob_dropout);
+
     jassert (apvts.state.isValid());
     jassert (getParameters().size() == ParamTable::numParams);
 }
@@ -156,6 +165,11 @@ void VaporStringsAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     ladder.prepare ({ sampleRate, (juce::uint32) samplesPerBlock, 2 });
     ladder.reset();
     lastFltType = -1;
+
+    fxSlow.prepare (sampleRate);  bpSlow.prepare (sampleRate);
+    fxDrive.prepare (sampleRate); bpDrive.prepare (sampleRate);
+    fxEns.prepare (sampleRate);   bpEns.prepare (sampleRate);
+    fxWob.prepare (sampleRate);   bpWob.prepare (sampleRate);
 
     gateDetector = gateGain = envState = 0.0f;
     gateOpen = false;
@@ -361,6 +375,17 @@ void VaporStringsAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         auto sub = blk.getSubBlock ((size_t) start, (size_t) len);
         ladder.process (juce::dsp::ProcessContextReplacing<float> (sub));
     }
+
+    // ---- FX chain I (fixed order, each with a 10 ms bypass crossfade) -------------
+    fxSlow.setParams (pSlowPitch->load(), pSlowDrift->load());
+    fxDrive.setParams ((vs::Drive::Mode) juce::jlimit (0, 3, (int) pDriveMode->load()), pDriveAmt->load(), pDriveTone->load());
+    fxEns.setParams ((vs::Ensemble::Mode) juce::jlimit (0, 2, (int) pEnsMode->load()), pEnsRate->load(), pEnsDepth->load(), pEnsMix->load());
+    fxWob.setParams (pWobWow->load(), pWobFlutter->load(), pWobAge->load(), pWobDrop->load());
+
+    vs::runInsert (bpSlow,  pSlowOn->load()  > 0.5f, fxSlow,  wetL, wetR, numSamples);
+    vs::runInsert (bpDrive, pDriveOn->load() > 0.5f, fxDrive, wetL, wetR, numSamples);
+    vs::runInsert (bpEns,   pEnsOn->load()   > 0.5f, fxEns,   wetL, wetR, numSamples);
+    vs::runInsert (bpWob,   pWobOn->load()   > 0.5f, fxWob,   wetL, wetR, numSamples);
 
     // ---- output: dry/wet, gain, safety clip --------------------------------------
     auto* outL = buffer.getWritePointer (0);

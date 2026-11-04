@@ -40,7 +40,7 @@
     "tests_passed": false,
     "ship_ready": false,
     "build_completed": true,
-    "build_timestamp": "2026-11-04T16:12:43Z",
+    "build_timestamp": "2026-11-04T16:19:38Z",
     "build_errors": 0
   },
   "framework_selection": {
@@ -54,7 +54,7 @@
     "clap_features": []
   },
   "error_recovery": {
-    "last_backup": "C:\\Users\\aaron\\Documents\\GitHub\\audio-plugin-coder\\plugins\\vaporstrings\\_state_backups\\status_backup_20261104_161251.json",
+    "last_backup": "C:\\Users\\aaron\\Documents\\GitHub\\audio-plugin-coder\\plugins\\vaporstrings\\_state_backups\\status_backup_20261104_161947.json",
     "rollback_available": true,
     "error_log": []
   },

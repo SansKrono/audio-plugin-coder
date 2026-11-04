@@ -10,6 +10,7 @@
 #include "dsp/Synth.h"
 #include "dsp/Shifter.h"
 #include "dsp/Envelope.h"
+#include "dsp/FxChain1.h"
 
 //==============================================================================
 /** Live values the editor streams to the WebView (written on the audio thread,
@@ -132,6 +133,19 @@ private:
     juce::AudioBuffer<float> envBuf;          // per-sample envelope level for the filter
     int lastFltType = -1;
     static constexpr int kFilterChunk = 32;   // cutoff modulation rate (samples)
+
+    // FX chain I (phase 2.1.6): Slowdown → Drive → Ensemble → Wobble/Age
+    vs::Slowdown fxSlow;   vs::Bypass bpSlow;
+    vs::Drive    fxDrive;  vs::Bypass bpDrive;
+    vs::Ensemble fxEns;    vs::Bypass bpEns;
+    vs::Wobble   fxWob;    vs::Bypass bpWob;
+    std::atomic<float>* pSlowOn  = nullptr; std::atomic<float>* pSlowPitch = nullptr; std::atomic<float>* pSlowDrift = nullptr;
+    std::atomic<float>* pDriveOn = nullptr; std::atomic<float>* pDriveMode = nullptr;
+    std::atomic<float>* pDriveAmt = nullptr; std::atomic<float>* pDriveTone = nullptr;
+    std::atomic<float>* pEnsOn   = nullptr; std::atomic<float>* pEnsMode = nullptr; std::atomic<float>* pEnsRate = nullptr;
+    std::atomic<float>* pEnsDepth = nullptr; std::atomic<float>* pEnsMix = nullptr;
+    std::atomic<float>* pWobOn   = nullptr; std::atomic<float>* pWobWow = nullptr; std::atomic<float>* pWobFlutter = nullptr;
+    std::atomic<float>* pWobAge  = nullptr; std::atomic<float>* pWobDrop = nullptr;
 
     // Smoothed controls
     juce::SmoothedValue<float> inGainSm, directSm, outGainSm, dryWetSm, widthSm;
