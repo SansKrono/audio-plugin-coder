@@ -6,6 +6,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8776", "--bind", "127.0.0.1", "--directory", "RitualComp76/Source/ui/public"],
       "port": 8776
+    },
+    {
+      "name": "ritualanvil-ui",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8777", "--bind", "127.0.0.1", "--directory", "RitualAnvil/Source/ui/public"],
+      "port": 8777
     }
   ]
 }

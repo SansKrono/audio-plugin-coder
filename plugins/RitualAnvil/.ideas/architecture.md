@@ -4,6 +4,8 @@ Re-implementation of the Ritual Suite POC drum-bus chain as dedicated C++ classe
 
 ## Core Components
 
+> **As built (4.1.1):** stage classes live together in `Source/Stages.h` (InputStage, TransientStage, ToneEQ, PunchStage, HeatStage, WidthStage, PeakLimiter); filters in `Biquad.h`, split in `BandSplitter3.h`. `TruePeakLimiter` replaces `PeakLimiter` in 4.1.2.
+
 | Class (Source/) | Role | Built on |
 | :--- | :--- | :--- |
 | `ParameterIDs.hpp` | String IDs + APVTS layout (15 params) | `AudioProcessorValueTreeState` |
@@ -14,7 +16,7 @@ Re-implementation of the Ritual Suite POC drum-bus chain as dedicated C++ classe
 | `ToneEQ.h` | 5 fixed peaking bands (60 / 200 / 3k / 8k / 12k Hz) | `dsp::IIR::Coefficients::makePeakFilter` |
 | `PunchStage.h` | Parallel comp (−20 dB, 8:1, 3/150 ms) + wet blend 0–0.5 | `dsp::Compressor`, dry copy prealloc |
 | `HeatStage.h` | 4× oversample → 3-band split @ 200 Hz / 5 kHz → hard / tanh / asym tube → sum → downsample | `dsp::Oversampling` (FIR halfband, linear phase), `BandSplitter3` |
-| `WidthStage.h` | M/S: side × width, side HPF 200 Hz | 1-pole/2-pole HPF on S |
+| `WidthStage` | M/S: side split at 200 Hz (1-pole complementary); width applied to side above 200 Hz only, side below untouched — width 100 % is an exact identity (POC HPF'd the side even at 100 %) | `OnePoleHP` on S |
 | `TruePeakLimiter.h` | Lookahead (~1.5 ms) brickwall, 4× OS peak detection, release 150 ms | delay line + gain smoother |
 | `AnvilProcessor` (`PluginProcessor`) | Owns stages, reads params once per block, runs `MacroMapper`, pushes targets, metering atomics, latency, bypass crossfade | `AudioProcessor` |
 | `PluginEditor` | WebView host + relays + meter event emitter | `WebBrowserComponent`, `WebSliderRelay`, `WebToggleButtonRelay` |
@@ -29,7 +31,7 @@ In ─► InputStage (trim → HPF)
    ─► ToneEQ (Kick → Box → Snare → Presence → Air)
    ─► PunchStage (dry + comp·blend)
    ─► HeatStage [↑4× ─ split 200 / 5k ─ hard | soft | tube ─ Σ ─ ↓4×]
-   ─► WidthStage (M/S, side HPF 200 Hz)
+   ─► WidthStage (M/S, width on side > 200 Hz)
    ─► TruePeakLimiter (ceiling)
    ─► Out
 Bypass: latency-matched dry delay, 10 ms crossfade.

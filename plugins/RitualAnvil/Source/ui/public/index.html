@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RitualAnvil Plugin</title>
+<script type="module" src="js/index.js"></script>
+<style>
+  :root {
+    --bg: #101014;
+    --surface: #1A1A1F;
+    --card: #151519;
+    --surface-hl: #292930;
+    --primary: #FFC300;
+    --primary-dim: rgba(255, 195, 0, 0.16);
+    --ember: #FF5A1F;
+    --ember-dim: rgba(255, 90, 31, 0.18);
+    --danger: #FF4D3D;
+    --text: #F0F0F5;
+    --text-dim: #A0A0A5;
+    --border: #3A3A45;
+    --font: "Roboto Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  body { width: 1000px; height: 600px; overflow: hidden; }
+
+  #plugin-ui {
+    width: 1000px;
+    height: 600px;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-top: 3px solid var(--primary);
+  }
+
+  /* ---------- Header ---------- */
+  .header {
+    height: 48px;
+    flex: none;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: baseline; gap: 14px; }
+  .wordmark { font-size: 15px; font-weight: 700; letter-spacing: 0.18em; }
+  .wordmark span { color: var(--primary); }
+  .subtitle { font-size: 10px; letter-spacing: 0.14em; color: var(--text-dim); }
+
+  .power {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface-hl);
+    display: grid; place-items: center;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .power svg { width: 14px; height: 14px; stroke: var(--text-dim); transition: stroke .15s; }
+  .power.on { border-color: var(--primary); box-shadow: 0 0 10px rgba(255,195,0,0.35); }
+  .power.on svg { stroke: var(--primary); }
+
+  /* ---------- Body ---------- */
+  .body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 268px 1fr 76px;
+    column-gap: 14px;
+    padding: 14px 20px;
+    transition: opacity .2s;
+  }
+  #plugin-ui.bypassed .body { opacity: 0.55; }
+
+  .col-left { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .col-center {
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    row-gap: 12px;
+    min-height: 0;
+  }
+  .row1 { display: grid; grid-template-columns: 176px 1fr; column-gap: 12px; min-height: 0; }
+  .row2 { display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 12px; min-height: 0; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .card-title {
+    height: 18px;
+    flex: none;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.16em;
+    color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-title .num { color: var(--primary); opacity: 0.7; }
+  .card-title .note { margin-left: auto; font-size: 9px; font-weight: 400; color: var(--text-dim); letter-spacing: 0.08em; }
+  .card-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    gap: 8px;
+    min-height: 0;
+  }
+
+  .control { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .label {
+    font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+  .value {
+    font-size: 11px; font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    white-space: nowrap;
+    min-height: 14px;
+  }
+  .eff {
+    font-size: 10px; font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--ember);
+    white-space: nowrap;
+    min-height: 12px;
+    visibility: hidden;
+  }
+  .eff.on { visibility: visible; }
+  .knob { cursor: ns-resize; touch-action: none; display: block; }
+
+  /* ---------- Hero ---------- */
+  .hero { flex: 1; align-items: center; }
+  .hero .card-body { flex-direction: column; justify-content: center; gap: 6px; }
+  #mix_ready-knob { cursor: ns-resize; touch-action: none; }
+  .hero-caption { font-size: 9px; letter-spacing: 0.14em; color: var(--text-dim); text-align: center; line-height: 1.5; }
+
+  .input-card { height: 168px; flex: none; }
+
+  /* ---------- EQ ---------- */
+  .eq-card .card-body { flex-direction: column; justify-content: space-between; align-items: stretch; gap: 6px; }
+  #eq-curve { display: block; border-radius: 3px; }
+  .eq-knobs { display: flex; justify-content: space-between; }
+  .freq { font-size: 9px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  /* ---------- GR bars ---------- */
+  .with-bar { display: flex; align-items: center; gap: 10px; }
+  .grbar { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .grbar .label { margin: 0; }
+
+  .heat-caption { font-size: 8px; letter-spacing: 0.1em; color: var(--text-dim); text-align: center; line-height: 1.5; }
+
+  /* ---------- Meters ---------- */
+  .meters { padding: 10px 6px; }
+  .meters .card-body { flex-direction: column; justify-content: flex-start; gap: 6px; }
+  .meter-labels { display: flex; justify-content: space-between; width: 100%; padding: 0 6px; }
+  .meter-readouts { display: flex; justify-content: space-between; width: 100%; padding: 0 2px; font-size: 9px; font-variant-numeric: tabular-nums; color: var(--text); }
+
+  /* ---------- Footer ---------- */
+  .footer {
+    height: 28px;
+    flex: none;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--border);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+  }
+  #lim-readout { font-variant-numeric: tabular-nums; color: var(--text); }
+  #lim-readout b { color: var(--text-dim); font-weight: 400; margin-right: 8px; }
+</style>
+</head>
+<body>
+<div id="plugin-ui">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">
+      <div class="wordmark">RITUAL <span>ANVIL</span></div>
+      <div class="subtitle">DRUM BUS FORGE</div>
+    </div>
+    <div class="power on" id="bypass-control" title="Power (bypass)">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round">
+        <path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div class="body">
+
+    <!-- Left: hero + input -->
+    <div class="col-left">
+      <div class="card hero" id="mix_ready-control">
+        <div class="card-title" style="align-self: stretch">MIX READY <span class="note">MACRO</span></div>
+        <div class="card-body">
+          <canvas id="mix_ready-knob" width="210" height="210"></canvas>
+          <div class="hero-caption">ONE KNOB · RAW KIT → FINISHED BUS<br><span style="color:var(--ember)">EMBER</span> = WHAT THE MACRO ADDS</div>
+        </div>
+      </div>
+
+      <div class="card input-card">
+        <div class="card-title"><span class="num">01</span>INPUT</div>
+        <div class="card-body">
+          <div class="control" id="input_gain-control">
+            <div class="label">Trim</div>
+            <canvas class="knob" id="input_gain-knob" width="64" height="64"></canvas>
+            <div class="value" id="input_gain-value"></div>
+            <div class="eff" id="input_gain-eff"></div>
+          </div>
+          <div class="control" id="hpf-control">
+            <div class="label">HPF</div>
+            <canvas class="knob" id="hpf-knob" width="64" height="64"></canvas>
+            <div class="value" id="hpf-value"></div>
+            <div class="eff" id="hpf-eff"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center: stages -->
+    <div class="col-center">
+      <div class="row1">
+        <div class="card">
+          <div class="card-title"><span class="num">02</span>TRANSIENT</div>
+          <div class="card-body">
+            <div class="control" id="transient_attack-control">
+              <div class="label">Attack</div>
+              <canvas class="knob" id="transient_attack-knob" width="68" height="68"></canvas>
+              <div class="value" id="transient_attack-value"></div>
+              <div class="eff" id="transient_attack-eff"></div>
+            </div>
+            <div class="control" id="transient_sustain-control">
+              <div class="label">Sustain</div>
+              <canvas class="knob" id="transient_sustain-knob" width="68" height="68"></canvas>
+              <div class="value" id="transient_sustain-value"></div>
+              <div class="eff" id="transient_sustain-eff"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card eq-card">
+          <div class="card-title"><span class="num">03</span>TONE EQ</div>
+          <div class="card-body">
+            <canvas id="eq-curve" width="370" height="70"></canvas>
+            <div class="eq-knobs">
+              <div class="control" id="eq_kick-control">
+                <div class="label">Kick</div>
+                <canvas class="knob" id="eq_kick-knob" width="56" height="56"></canvas>
+                <div class="value" id="eq_kick-value"></div>
+                <div class="eff" id="eq_kick-eff"></div>
+                <div class="freq">60 Hz</div>
+              </div>
+              <div class="control" id="eq_box-control">
+                <div class="label">Box</div>
+                <canvas class="knob" id="eq_box-knob" width="56" height="56"></canvas>
+                <div class="value" id="eq_box-value"></div>
+                <div class="eff" id="eq_box-eff"></div>
+                <div class="freq">200 Hz</div>
+              </div>
+              <div class="control" id="eq_snare-control">
+                <div class="label">Snare</div>
+                <canvas class="knob" id="eq_snare-knob" width="56" height="56"></canvas>
+                <div class="value" id="eq_snare-value"></div>
+                <div class="eff" id="eq_snare-eff"></div>
+                <div class="freq">3 kHz</div>
+              </div>
+              <div class="control" id="eq_presence-control">
+                <div class="label">Pres</div>
+                <canvas class="knob" id="eq_presence-knob" width="56" height="56"></canvas>
+                <div class="value" id="eq_presence-value"></div>
+                <div class="eff" id="eq_presence-eff"></div>
+                <div class="freq">8 kHz</div>
+              </div>
+              <div class="control" id="eq_air-control">
+                <div class="label">Air</div>
+                <canvas class="knob" id="eq_air-knob" width="56" height="56"></canvas>
+                <div class="value" id="eq_air-value"></div>
+                <div class="eff" id="eq_air-eff"></div>
+                <div class="freq">12 kHz</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="card">
+          <div class="card-title"><span class="num">04</span>PUNCH</div>
+          <div class="card-body with-bar">
+            <div class="control" id="punch-control">
+              <div class="label">Blend</div>
+              <canvas class="knob" id="punch-knob" width="76" height="76"></canvas>
+              <div class="value" id="punch-value"></div>
+              <div class="eff" id="punch-eff"></div>
+            </div>
+            <div class="grbar">
+              <div class="label">GR</div>
+              <canvas id="punch-gr" width="26" height="96"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="num">05</span>HEAT</div>
+          <div class="card-body" style="flex-direction: column; justify-content: center; gap: 2px">
+            <div class="control" id="heat-control">
+              <div class="label">Drive</div>
+              <canvas class="knob" id="heat-knob" width="76" height="76"></canvas>
+              <div class="value" id="heat-value"></div>
+              <div class="eff" id="heat-eff"></div>
+            </div>
+            <div class="heat-caption">HARD · SOFT · TUBE</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="num">06</span>WIDTH</div>
+          <div class="card-body" style="flex-direction: column; justify-content: center; gap: 2px">
+            <div class="control" id="width-control">
+              <div class="label">Side</div>
+              <canvas class="knob" id="width-knob" width="76" height="76"></canvas>
+              <div class="value" id="width-value"></div>
+              <div class="eff" id="width-eff"></div>
+            </div>
+            <div class="heat-caption">SIDE &gt; 200 Hz ONLY</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="num">07</span>CEILING</div>
+          <div class="card-body with-bar">
+            <div class="control" id="ceiling-control">
+              <div class="label">dBTP</div>
+              <canvas class="knob" id="ceiling-knob" width="76" height="76"></canvas>
+              <div class="value" id="ceiling-value"></div>
+              <div class="eff" id="ceiling-eff"></div>
+            </div>
+            <div class="grbar">
+              <div class="label">GR</div>
+              <canvas id="limiter-gr" width="26" height="96"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: meters -->
+    <div class="card meters">
+      <div class="card-body">
+        <div class="meter-labels"><span class="label">IN</span><span class="label">OUT</span></div>
+        <canvas id="io-meters" width="62" height="420"></canvas>
+        <div class="meter-readouts"><span id="in-readout">-inf</span><span id="out-readout">-inf</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>RITUALANVIL v0.0.0 · LAT 0 smp</span>
+    <span id="lim-readout"><b>LIM GR</b>0.0 dB</span>
+  </div>
+</div>
+
+</body>
+</html>

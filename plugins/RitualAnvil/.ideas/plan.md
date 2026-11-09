@@ -5,15 +5,17 @@
 ## Implementation Strategy: Phased
 
 ### Phase 4.1.1: Core Signal Path
-- [ ] `ParameterIDs.hpp` + APVTS layout: 15 params, IDs/ranges per parameter-spec.md, log skew on `hpf`
-- [ ] `MacroMapper.h` (pure, additive law) + unit tests for every target at t = 0, 0.4, 0.5, 0.6, 1.0 and clamp edges
-- [ ] `InputStage`, `ToneEQ`, `WidthStage` with smoothing
-- [ ] `BandSplitter3` (LR4 + allpass comp) — flat-sum test
-- [ ] `TransientShaper` (port POC, stereo-linked) on low + mid bands
-- [ ] `PunchStage` (dsp::Compressor + preallocated dry)
-- [ ] Heat **without** oversampling first (hard / tanh / tube per band) to validate tone
-- [ ] Simple peak limiter placeholder; meters atomics
-- [ ] CMake target (VST3 / AU / Standalone on macOS; WebView flags per platform, copy RitualComp76 pattern)
+- [x] `ParameterIDs.hpp` + APVTS layout: 15 params, IDs/ranges per parameter-spec.md, log skew on `hpf` (centre 44.7 Hz)
+- [x] `MacroMapper.h` (pure, additive law) + unit tests for every target at t = 0, 0.01, 0.25, 0.4, 0.5, 0.6, 0.75, 1.0 and clamp edges
+- [x] `InputStage`, `ToneEQ`, `WidthStage` with smoothing (own RBJ biquads, no allocation; coeffs every 32 samples on a block-independent counter)
+- [x] `BandSplitter3` (LR4 + allpass comp) — flat-sum test (< 0.01 dB)
+- [x] `TransientStage` (POC shaper port, stereo-linked detector per band) on low + mid bands
+- [x] `PunchStage` (own linked peak detector instead of dsp::Compressor so GR can be metered; dry·(1−b) + wet·b like POC)
+- [x] Heat **without** oversampling (hard / tanh / tube per band, fade-in over first 3 dB, −drive/2 output comp, 5 Hz DC blocker)
+- [x] Simple peak limiter placeholder (instant attack, 150 ms release); meter + effective-value atomics
+- [x] CMake target (VST3 / AU / Standalone on macOS; WebView flags per platform, RitualComp76 pattern) + `RitualAnvil_DspTest`
+- [x] WebView editor: 14 slider relays + bypass toggle (relays → WebView → attachments), embedded zip, `meter` event with `eff`
+- [x] Bypass crossfade (10 ms); state save/restore
 
 ### Phase 4.1.2: Quality & Optimization
 - [ ] Heat: 4× `dsp::Oversampling` (FIR halfband), split at OS rate, heat output compensation tuned by ear
