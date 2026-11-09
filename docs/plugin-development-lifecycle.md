@@ -37,7 +37,7 @@ Transform a vague idea into a concrete plugin concept with defined parameters.
 
 ### Trigger
 ```
-/dream MyPlugin
+/apc-dream MyPlugin
 ```
 
 ### Activities
@@ -64,7 +64,7 @@ Transform a vague idea into a concrete plugin concept with defined parameters.
 ### Outputs
 
 ```
-plugins/MyPlugin/
+$PluginPath/
 ├── .ideas/
 │   ├── creative-brief.md      # Vision and concept
 │   └── parameter-spec.md      # Parameter definitions
@@ -136,7 +136,7 @@ Design the DSP architecture and select the appropriate UI framework.
 
 ### Trigger
 ```
-/plan MyPlugin
+/apc-plan MyPlugin
 ```
 
 ### Activities
@@ -163,7 +163,7 @@ Design the DSP architecture and select the appropriate UI framework.
 ### Outputs
 
 ```
-plugins/MyPlugin/.ideas/
+$PluginPath/.ideas/
 ├── architecture.md            # DSP design
 └── plan.md                    # Implementation strategy
 ```
@@ -262,7 +262,7 @@ Create visual mockups and detailed UI specifications.
 
 ### Trigger
 ```
-/design MyPlugin
+/apc-design MyPlugin
 ```
 
 ### Activities
@@ -295,7 +295,7 @@ Create visual mockups and detailed UI specifications.
 ### Outputs
 
 ```
-plugins/MyPlugin/
+$PluginPath/
 └── Design/
     ├── v1-ui-spec.md          # Layout specification
     ├── v1-style-guide.md      # Visual reference
@@ -303,7 +303,7 @@ plugins/MyPlugin/
  
 Visage preview (optional):
 ```
-plugins/MyPlugin/Source/
+$PluginPath/Source/
     ├── PluginEditor.h
     ├── PluginEditor.cpp
     └── VisageControls.h
@@ -394,7 +394,7 @@ Write the C++ DSP and UI code.
 
 ### Trigger
 ```
-/impl MyPlugin
+/apc-impl MyPlugin
 ```
 
 ### Activities
@@ -428,18 +428,16 @@ Write the C++ DSP and UI code.
 ### Outputs
 
 ```
-plugins/MyPlugin/Source/
+$PluginPath/Source/
 ├── PluginProcessor.h
 ├── PluginProcessor.cpp
 ├── PluginEditor.h
 ├── PluginEditor.cpp
-└── ui/                      # WebView only
-    └── public/
+└── ui/                      # WebView only (JUCE 9: @juce-framework/webview /
+    └── public/              # native/typescript/webview-interop; see webview-framework.md)
         ├── index.html
         └── js/
-            ├── index.js
-            └── juce/
-                └── index.js
+            └── index.js
 ```
 
 **Key Implementation Points:**
@@ -523,7 +521,7 @@ Create professional installers and distribute the plugin.
 
 ### Trigger
 ```
-/ship MyPlugin
+/apc-ship MyPlugin
 ```
 
 ### Activities
@@ -555,7 +553,7 @@ Create professional installers and distribute the plugin.
 ### Outputs
 
 ```
-dist/
+release/
 ├── MyPlugin-v1.0/
 │   ├── MyPlugin-1.0-Windows-Setup.exe
 │   ├── MyPlugin-1.0-macOS.zip
@@ -571,9 +569,11 @@ dist/
 
 | Platform | Local | GitHub Actions | Formats |
 |----------|-------|----------------|---------|
-| Windows | ✅ | ✅ | VST3, Standalone |
-| macOS | ❌ | ✅ | VST3, AU, Standalone |
-| Linux | ❌ | ✅ | VST3, LV2, Standalone |
+| Windows | ✅ | ✅ | VST3, CLAP*, Standalone |
+| macOS | ✅ | ✅ | VST3, AU, CLAP*, Standalone |
+| Linux | ✅ | ✅ | VST3, LV2, CLAP*, Standalone |
+
+*\* CLAP only when the plugin opted in during Plan (`status.json` -> `formats.clap`).*
 
 ### Validation Criteria
 - [ ] All selected platforms built
@@ -592,8 +592,8 @@ dist/
   },
   "distribution": {
     "platforms": ["Windows", "macOS", "Linux"],
-    "local_build": ["Windows"],
-    "github_build": ["macOS", "Linux"]
+    "local_build": ["current platform"],
+    "github_build": ["remaining platforms"]
   }
 }
 ```
@@ -603,6 +603,25 @@ dist/
 - **Missing Inno Setup** - Required for Windows installer
 - **Wrong version number** - Update status.json before shipping
 - **Uncommitted changes** - Commit everything before GitHub Actions
+
+---
+
+## Post-Ship Iteration (Generations)
+
+Shipping is not the end. A shipped generation is **read-only** — new work
+always opens a generation first, so the agent never confuses "finished" with
+"abandoned":
+
+| Need | Command | What happens |
+|---|---|---|
+| Bug in shipped plugin | `/apc-patch MyPlugin` | Patch bump (`v1.0` → `v1.0.1`), phase → `code`, then impl → test → ship |
+| New feature / idea | `/apc-evolve MyPlugin` | Minor bump (`v1.0` → `v1.1`), feature brief, plan → design → impl → test → ship |
+
+Each generation freezes on re-ship (git tag + timestamp) and stays in
+`status.json` as permanent lineage (`/apc-status` renders the timeline).
+First open on a pre-generations plugin backfills the frozen v1.0 record
+automatically. `/apc-resume` on a shipped plugin suggests patch/evolve;
+`/apc-impl` on a frozen generation redirects instead of running.
 
 ---
 
@@ -627,13 +646,15 @@ ship → ship_complete → complete
 
 ### Recovery
 
-If you need to go back:
+If you need to go back (Windows PowerShell shown; `scripts/*.sh`
+equivalents on macOS/Linux):
 ```powershell
 # Manual state update
-Update-PluginState -PluginPath "plugins\MyPlugin" -Phase "design_complete"
+. .\scripts\state-management.ps1
+Update-PluginState -PluginPath $PluginPath -Phase "design_complete"
 
 # Or restore from backup
-Restore-PluginState -PluginPath "plugins\MyPlugin"
+Restore-PluginState -PluginPath $PluginPath
 ```
 
 ---
@@ -649,13 +670,13 @@ Restore-PluginState -PluginPath "plugins\MyPlugin"
    ```
 
 2. **Validate before proceeding**
-   ```powershell
-   /status MyPlugin
-   ```
+    ```text
+    /apc-status MyPlugin
+    ```
 
 3. **Backup before risky changes**
    ```powershell
-   Backup-PluginState -PluginPath "plugins\MyPlugin"
+   Backup-PluginState -PluginPath $PluginPath
    ```
 
 4. **Test incrementally**

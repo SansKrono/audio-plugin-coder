@@ -16,10 +16,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot\lib\Get-ApcPaths.ps1"
+. "$PSScriptRoot\lib\New-ReleaseZip.ps1"
 
 # 1. Setup Paths
-$RootPath = (Get-Item "$PSScriptRoot\..").FullName
-$SourceDir = Join-Path $RootPath "plugins\$PluginName"
+$ApcPaths = Get-ApcPaths
+$RootPath = $ApcPaths.RepoRoot
+$SourceDir = Join-Path $ApcPaths.PluginsDir $PluginName
 $BackupRoot = Join-Path $RootPath "_backups"
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmm"
 
@@ -68,7 +71,8 @@ if (-not (Test-Path "$BackupRoot\$PluginName")) {
 }
 
 Write-Host "Compressing to: $TargetZip" -ForegroundColor Yellow
-Compress-Archive -Path "$StageDir\*" -DestinationPath $TargetZip -Force
+# Not Compress-Archive: on Windows PowerShell 5.1 it writes backslash entry names (see lib\New-ReleaseZip.ps1).
+$null = New-ReleaseZip -SourceDir $StageDir -DestinationZip $TargetZip
 
 # 7. Cleanup
 Remove-Item -Path $TempDir -Recurse -Force

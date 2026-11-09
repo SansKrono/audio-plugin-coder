@@ -1,12 +1,24 @@
 cmake_minimum_required(VERSION 3.22)
 if(APPLE)
+    # macOS: force Apple clang (SansKrono macOS build setup, 8503730)
     set(CMAKE_C_COMPILER "clang")
     set(CMAKE_CXX_COMPILER "clang++")
     set(CMAKE_OBJC_COMPILER "clang")
     set(CMAKE_OBJCXX_COMPILER "clang++")
 endif()
 
-project(APC_System VERSION 1.0.0 LANGUAGES C CXX)
+# APC framework version: canonical source is package.json ("version").
+# Keep it there; `node bin/apc.js version sync` verifies this stays aligned.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/package.json" _apc_pkg_json)
+string(REGEX MATCH "\"version\"[ \t\r\n]*:[ \t\r\n]*\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" _apc_ver_match "${_apc_pkg_json}")
+if(CMAKE_MATCH_1)
+    set(APC_VERSION "${CMAKE_MATCH_1}")
+else()
+    message(WARNING "Could not parse version from package.json; falling back to 1.5.0")
+    set(APC_VERSION "1.5.0")
+endif()
+project(APC_System VERSION ${APC_VERSION} LANGUAGES C CXX)
+message(STATUS "APC version: ${APC_VERSION} (from package.json)")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -14,6 +26,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # OPTIONAL FEATURES
 # ============================================
 option(APC_ENABLE_VISAGE "Enable Visage UI framework support" OFF)
+option(APC_ENABLE_CLAP "Enable CLAP plugin format via clap-juce-extensions" ON)
 
 # ============================================
 # PLATFORM DETECTION
@@ -58,6 +71,7 @@ endif()
 # ============================================
 set(JUCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_tools/JUCE")
 set(VISAGE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_tools/visage")
+set(CLAP_JUCE_EXTENSIONS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_tools/clap-juce-extensions")
 
 if(NOT EXISTS "${JUCE_DIR}")
     message(FATAL_ERROR "JUCE missing at ${JUCE_DIR}")
@@ -75,12 +89,56 @@ if(APC_ENABLE_VISAGE)
     endif()
 endif()
 
+# clap-juce-extensions provides clap_juce_extensions_plugin(). Per-plugin
+# CMakeLists opt in via that call; a missing submodule must not break configure.
+if(APC_ENABLE_CLAP)
+    if(EXISTS "${CLAP_JUCE_EXTENSIONS_DIR}/CMakeLists.txt")
+        add_subdirectory("${CLAP_JUCE_EXTENSIONS_DIR}")
+        message(STATUS "CLAP: enabled (clap-juce-extensions)")
+    else()
+        message(STATUS "CLAP: requested but _tools/clap-juce-extensions is missing - skipping (git submodule update --init --recursive)")
+    endif()
+endif()
+
+# ============================================
+# PLUGIN / BUILD PATH OVERRIDES (apc.config.json)
+# ============================================
+# Prefer -DAPC_PLUGINS_DIR=... from the command line.
+# Otherwise read apc.config.json / apc.config.example.json when Python is available.
+if(NOT DEFINED APC_PLUGINS_DIR OR APC_PLUGINS_DIR STREQUAL "")
+    set(APC_PLUGINS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins")
+    set(_apc_cfg "${CMAKE_CURRENT_SOURCE_DIR}/apc.config.json")
+    if(NOT EXISTS "${_apc_cfg}")
+        set(_apc_cfg "${CMAKE_CURRENT_SOURCE_DIR}/apc.config.example.json")
+    endif()
+    if(EXISTS "${_apc_cfg}")
+        find_package(Python3 COMPONENTS Interpreter QUIET)
+        if(Python3_Interpreter_FOUND)
+            execute_process(
+                COMMAND "${Python3_EXECUTABLE}" -c
+                    "import json, pathlib, sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text(encoding='utf-8-sig')); print(d.get('paths',{}).get('plugins_dir','plugins'))"
+                    "${_apc_cfg}"
+                OUTPUT_VARIABLE _apc_plugins_rel
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET
+            )
+            if(_apc_plugins_rel)
+                if(IS_ABSOLUTE "${_apc_plugins_rel}")
+                    set(APC_PLUGINS_DIR "${_apc_plugins_rel}")
+                else()
+                    set(APC_PLUGINS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/${_apc_plugins_rel}")
+                endif()
+            endif()
+        endif()
+    endif()
+endif()
+
 # ============================================
 # PLUGIN DISCOVERY
 # ============================================
-message(STATUS "Scanning for plugins in: ${CMAKE_CURRENT_SOURCE_DIR}/plugins")
+message(STATUS "Scanning for plugins in: ${APC_PLUGINS_DIR}")
 
-file(GLOB PLUGIN_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/plugins/*")
+file(GLOB PLUGIN_DIRS "${APC_PLUGINS_DIR}/*")
 
 set(APC_PLUGIN_COUNT 0)
 
@@ -90,7 +148,7 @@ foreach(PLUGIN_DIR ${PLUGIN_DIRS})
     if(IS_DIRECTORY "${PLUGIN_DIR}")
         if(EXISTS "${PLUGIN_DIR}/CMakeLists.txt")
             message(STATUS " -> FOUND: ${DIR_NAME}")
-            add_subdirectory("${PLUGIN_DIR}")
+            add_subdirectory("${PLUGIN_DIR}" "${CMAKE_BINARY_DIR}/plugins/${DIR_NAME}")
             math(EXPR APC_PLUGIN_COUNT "${APC_PLUGIN_COUNT} + 1")
         else()
             message(STATUS " -> SKIPPING: ${DIR_NAME} (No CMakeLists.txt)")

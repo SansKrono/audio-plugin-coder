@@ -172,10 +172,10 @@ explorer build\plugins\YourPlugin\YourPlugin_artefacts\Release\Standalone
 
 ## Example: Complete Setup
 
-### File: `plugins/MyPlugin/Assets/icon.ico`
+### File: `$PluginPath/Assets/icon.ico`
 Multi-resolution Windows icon file
 
-### File: `plugins/MyPlugin/CMakeLists.txt`
+### File: `$PluginPath/CMakeLists.txt`
 ```cmake
 juce_add_plugin(MyPlugin
     COMPANY_NAME "APC"
@@ -207,7 +207,7 @@ Consider adding a script to generate icons from a source SVG:
 
 ### Template Integration
 The APC template system could:
-1. Generate placeholder icons during `/dream` phase
+1. Generate placeholder icons during `/apc-dream` phase
 2. Include icon requirements in the creative brief
 3. Provide icon design guidelines per plugin type
 

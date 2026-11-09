@@ -1,0 +1,46 @@
+{
+  "name": "audio-plugin-coder",
+  "version": "1.8.0",
+  "description": "AI-powered VST3/AU plugin development framework for JUCE 9 — build audio plugins with Codex, Claude Code, Cursor, or Kilo using /apc-setup and the APC phase workflow.",
+  "keywords": [
+    "audio",
+    "vst",
+    "vst3",
+    "juce",
+    "juce9",
+    "plugin",
+    "audio-plugin",
+    "dsp",
+    "codex",
+    "claude",
+    "cursor",
+    "ai",
+    "scaffolding"
+  ],
+  "homepage": "https://github.com/Noizefield/audio-plugin-coder",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Noizefield/audio-plugin-coder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Noizefield/audio-plugin-coder/issues"
+  },
+  "license": "MIT",
+  "bin": {
+    "audio-plugin-coder": "bin/setup.js",
+    "apc": "bin/apc.js"
+  },
+  "scripts": {
+    "setup": "node ./bin/setup.js",
+    "test": "node --test test/apc.test.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE.md"
+  ]
+}

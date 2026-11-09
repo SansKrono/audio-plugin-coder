@@ -4,13 +4,17 @@ Complete guide to the APC build system, including CMake configuration, PowerShel
 
 ## Overview
 
-APC uses a CMake-based build system with JUCE 8 as the audio plugin framework. The build process is orchestrated through PowerShell scripts to ensure consistency and proper error handling.
+APC uses a CMake-based build system with JUCE 9 (pin 9.0.1, see `apc.config.json`) as the audio plugin framework. The build process is orchestrated through platform scripts (PowerShell on Windows, Bash on macOS/Linux) to ensure consistency and proper error handling.
 
 **Key Principles:**
 - Never run cmake/msbuild directly - always use scripts
 - Build from repository root, not plugin subdirectories
-- Use PowerShell 7+ on Windows
-- All build artifacts go to `build/` directory
+- Use PowerShell on Windows, Bash on macOS/Linux (never mix shells)
+- All build artifacts go to the configured `paths.build_dir` (default `build/`);
+  ship packages go to `paths.release_dir` (default `release/`, never `dist/`)
+- Resolve plugin/build/release directories via `apc.config.json`
+  (`scripts/lib/Get-ApcPaths.ps1` / `scripts/lib/apc-paths.sh`) — do not
+  hardcode `./plugins`
 
 ---
 
@@ -24,17 +28,16 @@ audio-plugin-coder/
 ├── _tools/
 │   └── JUCE/
 │       └── CMakeLists.txt      # JUCE framework
-├── plugins/
+├── plugins/                    # Default plugins dir (override via apc.config.json → paths.plugins_dir / -DAPC_PLUGINS_DIR=...)
 │   └── [PluginName]/
 │       └── CMakeLists.txt      # Plugin-specific config
-└── build/                      # Build artifacts (generated)
-    └── plugins/
-        └── [PluginName]/
-            └── [PluginName]_artefacts/
-                └── Release/
-                    ├── [PluginName].vst3/
-                    ├── [PluginName].exe
-                    └── [PluginName].lib
+└── build/                      # Default build dir (override via paths.build_dir)
+    └── [PluginName]/
+        └── [PluginName]_artefacts/
+            └── Release/
+                ├── [PluginName].vst3/
+                ├── [PluginName].exe (Windows; equivalent binary on macOS/Linux)
+                └── [PluginName].lib
 ```
 
 ### Build Flow
@@ -78,7 +81,7 @@ The root [`CMakeLists.txt`](CMakeLists.txt) configures the global build environm
 
 ```cmake
 cmake_minimum_required(VERSION 3.22)
-project(AudioPluginCoder VERSION 0.1.0 LANGUAGES C CXX)
+project(AudioPluginCoder VERSION 1.5.0 LANGUAGES C CXX)
 
 # C++ Standard
 set(CMAKE_CXX_STANDARD 20)
@@ -90,8 +93,12 @@ add_subdirectory(_tools/JUCE)
 # Enable all plugin formats by default
 set(FORMATS VST3 Standalone)
 
-# Include all plugin directories
-file(GLOB PLUGIN_DIRS "plugins/*")
+# Include all plugin directories (relocatable: -DAPC_PLUGINS_DIR=... or
+# apc.config.json → paths.plugins_dir; defaults to <repo>/plugins)
+if(NOT DEFINED APC_PLUGINS_DIR OR APC_PLUGINS_DIR STREQUAL "")
+    set(APC_PLUGINS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/plugins")
+endif()
+file(GLOB PLUGIN_DIRS "${APC_PLUGINS_DIR}/*")
 foreach(plugin_dir ${PLUGIN_DIRS})
     if(IS_DIRECTORY ${plugin_dir})
         add_subdirectory(${plugin_dir})
@@ -101,7 +108,8 @@ endforeach()
 
 **Key Points:**
 - JUCE is added as a subdirectory (not called via `find_package`)
-- Automatically discovers plugins in `plugins/` directory
+- Plugin discovery honors `APC_PLUGINS_DIR` (see root `CMakeLists.txt`;
+  full logic reads `apc.config.json` when Python is available) — never assume `./plugins`
 - Sets global C++20 standard
 - **MUST declare `LANGUAGES C CXX`** — JUCE needs C for Sheenbidi (text rendering) and juceaide (build tool). Without C, `CMAKE_C_COMPILE_OBJECT` will be undefined at generate time
 
@@ -161,12 +169,13 @@ target_compile_definitions(${PLUGIN_NAME}
 Additional configuration for WebView plugins:
 
 ```cmake
-# Embed web UI files
+# Embed web UI files (JUCE 9: prefer @juce-framework/webview /
+# native/typescript/webview-interop over the deleted native/javascript path;
+# see webview-framework.md for the current interop setup)
 juce_add_binary_data(${PLUGIN_NAME}_WebUI
     SOURCES
         Source/ui/public/index.html
         Source/ui/public/js/index.js
-        Source/ui/public/js/juce/index.js
 )
 
 # Link binary data
@@ -186,7 +195,7 @@ target_compile_definitions(${PLUGIN_NAME}
 
 ### **CRITICAL: Platform-Specific WebView Requirements**
 
-JUCE 8 has **two separate flags** for WebView plugins:
+JUCE has **two separate flags** for WebView plugins:
 
 | Platform | Flag | Purpose |
 |----------|------|---------|
@@ -255,7 +264,8 @@ if (-not (Test-Path "_tools/JUCE/CMakeLists.txt")) {
     exit 1
 }
 
-# Create build directory
+# Build directory honors apc.config.json → paths.build_dir (default "build");
+# resolve via scripts/lib/Get-ApcPaths.ps1 instead of hardcoding.
 $BuildDir = "build"
 New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
@@ -303,6 +313,7 @@ Validates WebView plugin configuration:
 ```powershell
 param([Parameter(Mandatory=$true)][string]$PluginName)
 
+# Resolve via scripts/lib/Get-ApcPaths.ps1 (honors apc.config.json paths.plugins_dir)
 $PluginPath = "plugins/$PluginName"
 $Checks = @{
     CMakeListsExists = Test-Path "$PluginPath/CMakeLists.txt"
@@ -336,6 +347,7 @@ Validates critical member declaration order:
 ```powershell
 param([Parameter(Mandatory=$true)][string]$PluginName)
 
+# Resolve via scripts/lib/Get-ApcPaths.ps1 (honors apc.config.json paths.plugins_dir)
 $HeaderPath = "plugins/$PluginName/Source/PluginEditor.h"
 $Content = Get-Content $HeaderPath -Raw
 
@@ -372,7 +384,13 @@ exit 1
 | `[Name]_Standalone` | Standalone app | `.exe` |
 | `[Name]_AU` | Audio Unit (macOS) | `.component` |
 | `[Name]_LV2` | LV2 plugin (Linux) | `.lv2` bundle |
+| `[Name]_CLAP` | CLAP plugin (opt-in) | `.clap` file / bundle |
 | `[Name]_All` | All formats | Multiple |
+
+`[Name]_CLAP` exists only when the plugin opted into CLAP during `/apc-plan`
+(`status.json` -> `formats.clap`, emitted as `<Name>_ENABLE_CLAP ON` in the
+plugin CMakeLists) and `_tools/clap-juce-extensions` is present
+(`APC_ENABLE_CLAP`, default ON).
 
 ### Target Dependencies
 
@@ -451,6 +469,27 @@ Linux:
 ~/.vst3/
 ```
 
+### CLAP Installation Path (opt-in plugins)
+
+Windows (per-user, no admin needed):
+```
+%LOCALAPPDATA%\Programs\Common\CLAP\
+C:\Program Files\Common Files\CLAP\   (system-wide, used by the Inno installer)
+```
+
+macOS:
+```
+~/Library/Audio/Plug-Ins/CLAP/
+```
+
+Linux:
+```
+~/.clap/
+/usr/lib/clap/
+```
+
+Override via `paths.clap_install_dir` in `apc.config.json`.
+
 ### CMake Install Configuration
 
 ```cmake
@@ -515,8 +554,11 @@ build-macos:
 ```bash
 cmake libasound2-dev libfreetype6-dev libgl1-mesa-dev libx11-dev
 libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev
-libwebkit2gtk-4.1-dev libjack-jackd2-dev xvfb
+libwebkit2gtk-4.1-dev libjack-jackd2-dev xvfb libegl-dev
 ```
+
+(`libegl-dev` required for JUCE 9 OpenGL/EGL; `libwebkit2gtk-4.1-dev` for
+WebView; `system-check.sh` probes both via `check_egl`/`check_webkit`.)
 
 **GitHub Actions:**
 ```yaml
@@ -532,7 +574,7 @@ build-linux:
         sudo apt-get install -y cmake libasound2-dev libfreetype6-dev \
           libgl1-mesa-dev libx11-dev libxcomposite-dev libxcursor-dev \
           libxext-dev libxinerama-dev libxrandr-dev libwebkit2gtk-4.1-dev \
-          libjack-jackd2-dev xvfb
+          libjack-jackd2-dev xvfb libegl-dev
     - name: Configure
       run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
     - name: Build VST3
@@ -606,12 +648,13 @@ cmake -S . -B build  # Don't run directly
 powershell -ExecutionPolicy Bypass -File .\scripts\build-and-install.ps1 -PluginName MyPlugin
 
 # Bad (from plugin directory)
-cd plugins/MyPlugin  # Don't do this
+Set-Location $PluginPath  # Don't do this — always build from the repo root
 ```
 
 ### 3. Clean Builds
 
-When switching configurations:
+When switching configurations (default `build/`; use your configured
+`paths.build_dir` if overridden):
 ```powershell
 Remove-Item -Recurse -Force build/
 powershell -ExecutionPolicy Bypass -File .\scripts\build-and-install.ps1 -PluginName MyPlugin

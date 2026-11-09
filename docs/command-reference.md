@@ -1,47 +1,110 @@
 # Command Reference
 
-Complete reference for all APC commands, slash commands, and PowerShell scripts.
+Complete reference for all APC agent commands and platform scripts.
+
+## Primary slash commands (`/apc-*`)
+
+Use the **`apc-` prefix** to avoid collisions with other frameworks and host builtins:
+
+| Primary | Deprecated alias | Purpose |
+|---|---|---|
+| `/apc-setup` | `/setup` | First-run toolchain, paths, models |
+| `/apc-dream` | `/dream` | Ideation |
+| `/apc-plan` | `/plan` | Architecture + UI framework |
+| `/apc-design` | `/design` | UI design |
+| `/apc-impl` / `/apc-implement` | `/impl` | Implementation |
+| `/apc-test` | `/test` | Testing |
+| `/apc-debug` | `/debug` | Debugging |
+| `/apc-ship` | `/ship` | Packaging |
+| `/apc-status` | `/status` | State inspection |
+| `/apc-resume` | `/resume` | Continue next incomplete phase |
+| `/apc-patch` | — | Open a bugfix generation on a shipped plugin |
+| `/apc-evolve` | — | Open a feature generation on a shipped plugin |
+| `/apc-new` | `/new` | Guided multi-phase with confirmations |
+| `/apc-orchestrate` | — | Decompose a goal across subagent workers |
+
+Paths and models: see `apc.config.example.json`, `docs/model-routing.md`. Subagent workers: see `docs/orchestration.md`.
 
 ## Overview
 
 APC provides multiple ways to interact with the system:
-- **Slash Commands** - AI agent commands (`/dream`, `/plan`, etc.)
+- **Slash Commands** - AI agent commands (`/apc-dream`, `/apc-plan`, etc.)
+- **Codex Skill** - `$audio-plugin-coder:audio-plugin-coder <action> <Name>`
 - **PowerShell Scripts** - Build and utility scripts
 - **GitHub Actions** - CI/CD workflows
 - **Direct Tools** - Manual tool invocation
 
 ---
 
+## Codex Commands
+
+Codex discovers APC's repo-local skill from `.agents/skills/`. The reliable Codex interface is the
+skill action:
+
+```text
+$audio-plugin-coder:audio-plugin-coder setup
+$audio-plugin-coder:audio-plugin-coder dream EchoReverb
+$audio-plugin-coder:audio-plugin-coder plan EchoReverb
+$audio-plugin-coder:audio-plugin-coder design EchoReverb
+$audio-plugin-coder:audio-plugin-coder impl EchoReverb
+$audio-plugin-coder:audio-plugin-coder test EchoReverb
+$audio-plugin-coder:audio-plugin-coder debug EchoReverb
+$audio-plugin-coder:audio-plugin-coder status EchoReverb
+$audio-plugin-coder:audio-plugin-coder resume EchoReverb
+$audio-plugin-coder:audio-plugin-coder ship EchoReverb
+$audio-plugin-coder:audio-plugin-coder patch EchoReverb
+$audio-plugin-coder:audio-plugin-coder evolve EchoReverb
+$audio-plugin-coder:audio-plugin-coder new EchoReverb
+```
+
+Natural-language equivalents also work. Do not use `/plan` or `/status` for APC in Codex; those
+names invoke Codex's built-in plan mode and session status. The bare `/apc-*` names remain the
+Claude/Kilo form. Plugin surfaces that support packaged command adapters may expose the
+namespaced `/audio-plugin-coder:apc-*` form.
+
+See [Codex Compatibility](codex-compatibility.md) for discovery and packaging details.
+
+---
+
+## DeepSeek Harness (DSH)
+
+DSH registers slash commands through a plugin-owned command registry, not repo markdown files (skills are different: `.agents/skills/` is auto-discovered). The `integrations/dsh/apc-commands.mjs` adapter registers all twelve `/apc-*` commands; mount it once per machine with one insert row in `~/.dsh/profiles/web/cordis.patch.yml` and restart the harness.
+
+See [the DSH integration README](../integrations/dsh/README.md) for install, uninstall, and troubleshooting.
+
+---
+
 ## Slash Commands
 
-Slash commands are the primary way to interact with APC through AI agents.
+Slash commands are the primary APC syntax in Claude Code and Kilo. Codex uses the skill action;
+sections below still describe the shared APC behavior.
 
-### `/dream [Name]`
+### `/apc-dream [Name]` (alias: `/dream`)
 
 **Purpose:** Initialize a new plugin with ideation phase
 
 **Trigger:** Natural language equivalent: "Create a new delay plugin called EchoReverb"
 
 **Actions:**
-1. Creates plugin directory: `plugins/[Name]/`
+1. Creates plugin directory: `$PluginPath/`
 2. Generates `creative-brief.md` (concept document)
 3. Generates `parameter-spec.md` (parameter definitions)
 4. Initializes `status.json` (project state)
 
 **Output Files:**
 ```
-plugins/[Name]/
+$PluginPath/
 ├── .ideas/
 │   ├── creative-brief.md
 │   └── parameter-spec.md
 └── status.json
 ```
 
-**Next Step:** `/plan [Name]`
+**Next Step:** `/apc-plan [Name]`
 
 ---
 
-### `/plan [Name]`
+### `/apc-plan [Name]` (alias: `/plan`)
 
 **Purpose:** Define architecture and select UI framework
 
@@ -57,16 +120,16 @@ plugins/[Name]/
 
 **Output Files:**
 ```
-plugins/[Name]/.ideas/
+$PluginPath/.ideas/
 ├── architecture.md
 └── plan.md
 ```
 
-**Next Step:** `/design [Name]`
+**Next Step:** `/apc-design [Name]`
 
 ---
 
-### `/design [Name]`
+### `/apc-design [Name]` (alias: `/design`)
 
 **Purpose:** Create GUI mockups and visual design
 
@@ -84,7 +147,7 @@ plugins/[Name]/.ideas/
 
 **Output Files:**
 ```
-plugins/[Name]/
+$PluginPath/
 ├── Design/
 │   ├── v1-ui-spec.md
 │   ├── v1-style-guide.md
@@ -95,11 +158,11 @@ plugins/[Name]/
     └── VisageControls.h
 ```
 
-**Next Step:** `/impl [Name]` or iterate design
+**Next Step:** `/apc-impl [Name]` or iterate design
 
 ---
 
-### `/impl [Name]`
+### `/apc-impl [Name]` (alias: `/impl`)
 
 **Purpose:** Implement DSP and UI code
 
@@ -115,18 +178,18 @@ plugins/[Name]/
 
 **Output Files:**
 ```
-plugins/[Name]/Source/
+$PluginPath/Source/
 ├── PluginProcessor.h
 ├── PluginProcessor.cpp
 ├── PluginEditor.h
 └── PluginEditor.cpp
 ```
 
-**Next Step:** `/ship [Name]`
+**Next Step:** `/apc-ship [Name]`
 
 ---
 
-### `/ship [Name]`
+### `/apc-ship [Name]` (alias: `/ship`)
 
 **Purpose:** Package and distribute plugin
 
@@ -142,7 +205,7 @@ plugins/[Name]/Source/
 
 **Output:**
 ```
-dist/
+release/
 ├── EchoReverb-v1.0/
 │   ├── EchoReverb-1.0-Windows-Setup.exe
 │   ├── EchoReverb-1.0-macOS.zip
@@ -154,11 +217,13 @@ dist/
 └── EchoReverb-v1.0.zip
 ```
 
-**Platforms:** Windows (VST3, Standalone), macOS (VST3, AU, Standalone), Linux (VST3, LV2, Standalone)
+**Platforms:** Windows (VST3, CLAP*, Standalone), macOS (VST3, AU, CLAP*, Standalone), Linux (VST3, LV2, CLAP*, Standalone)
+
+*\* CLAP only when the plugin opted in (`status.json` -> `formats.clap`).*
 
 ---
 
-### `/status [Name]`
+### `/apc-status [Name]` (alias: `/status`)
 
 **Purpose:** Check current progress and state
 
@@ -188,12 +253,12 @@ Validation Status:
 𐄂 Tests passed
 𐄂 Ship ready
 
-Next Step: Run /impl EchoReverb to start implementation
+Next Step: Run /apc-impl EchoReverb to start implementation
 ```
 
 ---
 
-### `/resume [Name]`
+### `/apc-resume [Name]` (alias: `/resume`)
 
 **Purpose:** Continue development from last phase
 
@@ -211,7 +276,7 @@ Next Step: Run /impl EchoReverb to start implementation
 
 ---
 
-### `/test [Name]`
+### `/apc-test [Name]` (alias: `/test`)
 
 **Purpose:** Run validation tests
 
@@ -225,7 +290,7 @@ Next Step: Run /impl EchoReverb to start implementation
 
 ---
 
-### `/debug [Name]`
+### `/apc-debug [Name]` (alias: `/debug`)
 
 **Purpose:** Debug plugin issues
 
@@ -239,7 +304,7 @@ Next Step: Run /impl EchoReverb to start implementation
 
 ---
 
-### `/new [Name]`
+### `/apc-new [Name]` (alias: `/new`)
 
 **Purpose:** Run complete workflow with confirmations
 
@@ -252,10 +317,82 @@ Next Step: Run /impl EchoReverb to start implementation
 
 **Flow:**
 ```
-/dream → confirm → /plan → confirm → /design → confirm → /impl → confirm → /ship
+/apc-dream → confirm → /apc-plan → confirm → /apc-design → confirm → /apc-impl → confirm → /apc-ship
 ```
 
 ---
+
+### `/apc-patch [Name]` (no alias)
+
+**Purpose:** Open a bugfix generation on a shipped plugin
+
+**Trigger:** Natural language: "Fix the click bug in shipped ExamplePlugin"
+
+**Actions:**
+1. Verifies the plugin is shipped (refuses otherwise — use `/apc-resume`)
+2. Backfills the frozen prior-generation record on first use
+3. Snapshots `status.json`, bumps the patch digit (`v1.0` → `v1.0.1`)
+4. Points the phase at `code`; resets only `tests_passed` / `ship_ready`
+
+**Scope:** DSP/code fixes + tiny UI touch-ups (text, labels, positions).
+New controls or layout → `/apc-evolve`. Then `/apc-impl` → `/apc-test` →
+`/apc-ship` (ship freezes the generation).
+
+---
+
+### `/apc-evolve [Name]` (no alias)
+
+**Purpose:** Open a feature generation on a shipped plugin
+
+**Trigger:** Natural language: "Add a tape-hiss mode to shipped ExamplePlugin"
+
+**Actions:**
+1. Asks for a one-line goal + optional codename (`v1.1 "Analog Warmth"`)
+2. Verifies shipped state, backfills, snapshots (as patch)
+3. Bumps minor (`v1.0` → `v1.1`), points the phase at `plan`
+4. Writes `.ideas/{version}-brief.md` as the feature scope contract
+
+**Flow:** `/apc-plan` → `/apc-design` → `/apc-impl` → `/apc-test` →
+`/apc-ship` (brief bundled as release notes; ship freezes the generation).
+
+---
+
+## Platform Scripts
+
+Prefer the single cross-platform CLI (Node 18+, zero deps) — it dispatches
+to the right `scripts/` backend for the current OS, so agents never need the
+`.ps1`-vs-`.sh` matrix:
+
+```
+node bin/apc.js version [--json]           # framework version (from package.json)
+node bin/apc.js paths [--json] [--plugin N]  # resolved plugins/build/release dirs
+node bin/apc.js doctor [--fix]             # version header + system-check (--fix: safe auto-fixes only)
+node bin/apc.js build <Name> [--no-install] [--skip-tests] [--strict]
+node bin/apc.js validate <kind> [--plugin N] [--json]  # webview|webview-order|visage|plugin run natively (cross-platform); state stays shell-bound
+node bin/apc.js backup <Name> <Version>
+node bin/apc.js rollback <Name> <Version>
+node bin/apc.js patch <Name> [--json]           # open bugfix generation (v1.0 -> v1.0.1)
+node bin/apc.js evolve <Name> [--codename N] [--json]  # open feature generation (v1.0 -> v1.1)
+node bin/apc.js freeze <Name> [--tag T] [--json]  # freeze open generation (called by ship flow)
+node bin/apc.js status [--plugin N] [--json]    # generation timeline (frozen flag + lineage)
+npm test                                    # CLI test suite (test/apc.test.js, zero deps)
+```
+
+A shipped generation (`ship_complete` with no open generation) is read-only:
+open a generation first — `/apc-patch` for bugs (code-first, tiny UI
+touch-ups allowed), `/apc-evolve` for features (brief → plan → design →
+impl → test → ship). `/apc-resume` on a shipped plugin suggests these two
+instead of stopping.
+
+Raw `scripts/` invocation still works (the CLI delegates to it in phase 1):
+
+Windows uses PowerShell (`.ps1`); macOS/Linux use the matching Bash
+(`.sh`) script **where a twin exists**. Core flows (build, state, backup,
+system-check) ship as pairs; several validators (`validate-*.ps1`,
+`pluginval-integration.ps1`) are currently Windows-only — one reason the
+roadmap calls for a single cross-platform `apc` CLI (Idea 1). Examples below
+show PowerShell; swap in the `.sh` equivalent on macOS/Linux when available
+(e.g. `bash scripts/build-and-install.sh`).
 
 ## PowerShell Scripts
 
@@ -353,13 +490,17 @@ Validates state management system integrity.
 
 ### Utility Scripts
 
-#### setup.ps1
+#### First-run setup (retired `setup.ps1`)
+
+`scripts/setup.ps1` was retired; set up via the one-command installer or the agent phase:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
+npx github:Noizefield/audio-plugin-coder
+# or, inside an AI agent session in this repo:
+/apc-setup
 ```
 
-Initializes APC environment:
+This initializes the APC environment:
 - Checks prerequisites
 - Initializes git submodules
 - Validates JUCE installation
@@ -410,13 +551,15 @@ Dot-source to use functions:
 . .\scripts\state-management.ps1
 
 # Then use functions
-New-PluginState -PluginName "MyPlugin" -PluginPath "plugins\MyPlugin"
-Get-PluginState -PluginPath "plugins\MyPlugin"
-Update-PluginState -PluginPath "plugins\MyPlugin" -Updates @{...}
-Test-PluginState -PluginPath "plugins\MyPlugin" -RequiredPhase "plan_complete"
-Complete-Phase -PluginPath "plugins\MyPlugin" -Phase "design" -Updates @{...}
-Backup-PluginState -PluginPath "plugins\MyPlugin"
-Restore-PluginState -PluginPath "plugins\MyPlugin"
+. ".\scripts\lib\Get-ApcPaths.ps1"
+$PluginPath = Get-ApcPluginPath -PluginName "MyPlugin"
+New-PluginState -PluginName "MyPlugin" -PluginPath $PluginPath
+Get-PluginState -PluginPath $PluginPath
+Update-PluginState -PluginPath $PluginPath -Updates @{...}
+Test-PluginState -PluginPath $PluginPath -RequiredPhase "plan_complete"
+Complete-Phase -PluginPath $PluginPath -Phase "design" -Updates @{...}
+Backup-PluginState -PluginPath $PluginPath
+Restore-PluginState -PluginPath $PluginPath
 ```
 
 ---
@@ -485,7 +628,7 @@ git push origin v1.0.0-MyPlugin
 gh run list --workflow=build-release.yml
 
 # Download artifacts
-gh run download <run-id> --dir dist/github-artifacts
+gh run download <run-id> --dir release/github-artifacts
 ```
 
 ---
@@ -496,20 +639,27 @@ gh run download <run-id> --dir dist/github-artifacts
 
 | Command | Phase | Output |
 |---------|-------|--------|
-| `/dream` | Ideation | Concept + Parameters |
-| `/plan` | Planning | Architecture + Framework |
-| `/design` | Design | UI Specifications |
-| `/impl` | Implementation | Working Code |
-| `/ship` | Shipping | Distribution Package |
+| `/apc-dream` | Ideation | Concept + Parameters |
+| `/apc-plan` | Planning | Architecture + Framework |
+| `/apc-design` | Design | UI Specifications |
+| `/apc-impl` | Implementation | Working Code |
+| `/apc-ship` | Shipping | Distribution Package |
 
 ### Status Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/status` | Check progress |
-| `/resume` | Continue development |
-| `/test` | Run validation |
-| `/debug` | Debug issues |
+| `/apc-status` | Check progress |
+| `/apc-resume` | Continue development |
+| `/apc-test` | Run validation |
+| `/apc-debug` | Debug issues |
+
+### Revisit Commands (shipped plugins)
+
+| Command | Purpose |
+|---------|---------|
+| `/apc-patch` | Open bugfix generation (patch bump, code-first) |
+| `/apc-evolve` | Open feature generation (minor bump, delta pipeline) |
 
 ### Script Commands
 
@@ -517,7 +667,7 @@ gh run download <run-id> --dir dist/github-artifacts
 |--------|---------|
 | `build-and-install.ps1` | Build plugin |
 | `validate-*.ps1` | Validation |
-| `setup.ps1` | Initialize |
+| `bin/setup.js` (`npx`) / `/apc-setup` | Initialize (replaces retired `setup.ps1`) |
 | `system-check.ps1` | Check requirements |
 | `state-management.ps1` | Manage state |
 | `backup.ps1` / `rollback.ps1` | Recovery |
@@ -528,26 +678,26 @@ gh run download <run-id> --dir dist/github-artifacts
 
 ### New Plugin Workflow
 
-```powershell
-# Using slash commands
-/dream MyPlugin
-/plan MyPlugin
-/design MyPlugin
-/impl MyPlugin
-/ship MyPlugin
+```text
+# Using slash commands (short aliases like /dream still work but are deprecated)
+/apc-dream MyPlugin
+/apc-plan MyPlugin
+/apc-design MyPlugin
+/apc-impl MyPlugin
+/apc-ship MyPlugin
 
-# Or using /new
-/new MyPlugin
+# Or using /apc-new
+/apc-new MyPlugin
 ```
 
 ### Resume Workflow
 
-```powershell
+```text
 # Check status first
-/status MyPlugin
+/apc-status MyPlugin
 
 # Resume from current phase
-/resume MyPlugin
+/apc-resume MyPlugin
 ```
 
 ### Debug Workflow
@@ -557,20 +707,20 @@ gh run download <run-id> --dir dist/github-artifacts
 .\scripts\validate-plugin-status.ps1 -PluginName MyPlugin
 
 # Check for known issues
-Get-Content .agent/troubleshooting/known-issues.yaml | Select-String "error pattern"
+Get-Content .agents/troubleshooting/known-issues.yaml | Select-String "error pattern"
 
 # Debug
-/debug MyPlugin
+/apc-debug MyPlugin
 ```
 
 ### Ship Workflow
 
-```powershell
-# Local build first
+```text
+# Local build first (Windows shown; .sh on macOS/Linux)
 .\scripts\build-and-install.ps1 -PluginName MyPlugin
 
 # Then ship
-/ship MyPlugin
+/apc-ship MyPlugin
 
 # Or manual trigger
 gh workflow run build-release.yml -f plugin_name=MyPlugin -f platforms=all
@@ -584,4 +734,3 @@ gh workflow run build-release.yml -f plugin_name=MyPlugin -f platforms=all
 - [State Management](state-management-deep-dive.md) - How state is tracked
 - [GitHub Actions](github-actions.md) - CI/CD workflows
 - [Troubleshooting](troubleshooting-guide.md) - When commands fail
-

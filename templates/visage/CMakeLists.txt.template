@@ -1,0 +1,79 @@
+cmake_minimum_required(VERSION 3.15)
+
+# Plugin definition with Visage support
+juce_add_plugin({{PLUGIN_NAME_LOWER}}
+    COMPANY_NAME "{{COMPANY_NAME}}"
+    PLUGIN_MANUFACTURER_CODE {{MANUFACTURER_CODE}}
+    PLUGIN_CODE {{PLUGIN_CODE}}
+    FORMATS VST3 Standalone
+    PRODUCT_NAME "{{PLUGIN_DISPLAY_NAME}}"
+)
+
+# ============================================
+# CLAP FORMAT (opt-in)
+# ============================================
+# Emitted only when the plugin opted into CLAP during /apc-plan
+# (recorded in status.json -> formats.clap). Requires the
+# _tools/clap-juce-extensions submodule (root option APC_ENABLE_CLAP);
+# the COMMAND guard keeps configure working if the submodule is absent.
+#
+# CLAP_ID: {clap.id_prefix from apc.config.json}.{plugin-slug}
+# CLAP_FEATURES: effect -> audio-effect | synth -> instrument synthesizer |
+#                note/MIDI fx -> note-effect | analyzer -> analyzer
+option({{PLUGIN_NAME_LOWER}}_ENABLE_CLAP "Build {{PLUGIN_DISPLAY_NAME}} in CLAP format" {{CLAP_ENABLED}})
+if({{PLUGIN_NAME_LOWER}}_ENABLE_CLAP AND COMMAND clap_juce_extensions_plugin)
+    clap_juce_extensions_plugin(TARGET {{PLUGIN_NAME_LOWER}}
+        CLAP_ID "{{CLAP_ID}}"
+        CLAP_FEATURES {{CLAP_FEATURES}})
+endif()
+
+# Binary assets (fonts)
+juce_add_binary_data({{PLUGIN_NAME_LOWER}}_Assets
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../_tools/visage/visage_graphics/fonts/Lato-Regular.ttf
+    NAMESPACE {{PLUGIN_NAME_LOWER}}_BinaryData
+)
+
+# Source files
+target_sources({{PLUGIN_NAME_LOWER}}
+    PRIVATE
+        Source/PluginProcessor.cpp
+        Source/PluginEditor.cpp
+        Source/VisageControls.h
+)
+
+# Include paths
+target_include_directories({{PLUGIN_NAME_LOWER}}
+    PRIVATE
+        Source
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../common
+)
+
+# Required JUCE modules + Visage
+target_link_libraries({{PLUGIN_NAME_LOWER}}
+    PRIVATE
+        {{PLUGIN_NAME_LOWER}}_Assets
+        visage::visage
+        juce::juce_audio_basics
+        juce::juce_audio_devices
+        juce::juce_audio_formats
+        juce::juce_audio_plugin_client
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+        juce::juce_core
+        juce::juce_data_structures
+        juce::juce_dsp
+        juce::juce_events
+        juce::juce_graphics
+        juce::juce_gui_basics
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags
+)
+
+target_compile_definitions({{PLUGIN_NAME_LOWER}}
+    PUBLIC
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        _USE_MATH_DEFINES=1
+)

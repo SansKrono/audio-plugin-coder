@@ -1,28 +1,7 @@
-﻿---
-description: "PHASE 2: Architecture - Define structure and UI framework"
+---
+description: "Deprecated alias â€” use /apc-plan"
 ---
 
-# Plan Phase (Architecture)
+> **APC pointer** - canonical file: `.agents/workflows/plan.md`.
 
-**Prerequisites:**
-1. Validate: `Test-PluginState -PluginPath "plugins\$PluginName" -RequiredPhase "ideation"`
-2. Check required files exist from ideation phase
-
-**Execute Skill:**
-Load and follow `...agent/skills/skill_planning.md` exactly.
-
-**CRITICAL UI Framework Decision:**
-- Read user requirements
-- If user has not explicitly chosen, ASK: "Use WebView2 (HTML/JS) or Visage (native C++)?"
-- Determine: VISAGE (pure C++) or WEBVIEW (hybrid)
-- Update status.json with framework selection
-- Set complexity score (1-5)
-
-**Success Criteria:**
-- `status.json` updated with `ui_framework` = "visage" or "webview"
-- Architecture document created
-- Framework selection rationale documented
-
-**After completion:**
-Stop and inform user: "Plan phase complete. Framework selected: [X]. Use `/design [Name]` to continue."
-
+Load and follow `../../.agents/workflows/plan.md` exactly as written (it contains the full instructions, validation steps, and completion message).

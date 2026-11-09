@@ -5,212 +5,299 @@ All notable changes to Audio Plugin Coder (APC) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+---
+
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-10
+
 ### Added
-- Visage integration scaffolding
-  - `APC_ENABLE_VISAGE` CMake option and optional subdirectory wiring
-  - Visage plugin templates for `.kilocode`, `.agent`, and `.claude`
-  - `scripts/validate-visage-setup.ps1` validation script
-  - Design workflow: Visage preview scaffold (no HTML), default yes
-  - Implementation workflow: framework routing and Visage validation
-  - Documentation updates for Visage preview flow and validation
-- Visage gnarly3 pilot UI (experimental)
-  - Knob interaction and parameter binding
-  - Live filter graph with non-linear “gnarly” response
-  - Windowless preview rendering path for stability
-- CloudWash plugin: Full-featured granular texture processor (Mutable Instruments Clouds adaptation)
-  - 4 processing modes (Granular, Pitch Shifter, Looping Delay, Spectral)
-  - WebView-based UI with real-time visualization
-  - 13 parameters with JUCE backend integration
-  - Noizefield branding with clickable logo (opens https://noizefield.com in external browser)
-  - Comprehensive 300+ line USER_MANUAL.md with full documentation
-- **Automatic Documentation System**
-  - `Documentation/` folder auto-created for all plugins
-  - All files in Documentation/ automatically included in installer
-  - Documentation placed inside plugin bundle (keeps VST3 root clean)
-  - Start Menu shortcuts to User Manual and Documentation folder
-  - Auto-generation of basic manual if folder is empty
-  - Documentation system integrated into `/ship` workflow
-  - New guide: `.claude/guides/documentation-system.md`
-- **WebView External URL Support**
-  - Plugins can now open URLs in system's default browser
-  - Implemented via `window.__JUCE__.backend.emitEvent()` and `juce::URL::launchInDefaultBrowser()`
-  - Example: CloudWash logo opens noizefield.com when clicked
-- Troubleshooting auto-capture system
-  - Known issues database (`.claude/troubleshooting/known-issues.yaml`)
-  - Auto-documentation of solutions after 3 failed attempts
-  - Self-improving issue resolution
-- State management system
-  - `status.json` tracking for all plugins
-  - Phase gating and validation
-  - Backup and rollback capabilities
-- GitHub Actions cross-platform build workflow
-  - Automated builds for Windows, macOS, and Linux
-  - Manual trigger via workflow_dispatch
-  - Automatic releases on git tags
 
-### Changed
-- Design phase now branches by framework: WebView generates HTML preview; Visage avoids HTML and uses C++ scaffold
-- Implementation phase now routes templates by framework and runs Visage validation for Visage plugins
-- Build and preview scripts now auto-enable `APC_ENABLE_VISAGE` when `ui_framework == visage`
-- **Installer template improvements**
-  - Documentation now placed inside plugin bundle instead of VST3 root folder
-  - Fixed desktop shortcut icons (now references icon.ico correctly)
-  - Added Start Menu shortcuts to documentation
-  - SetupIconFile now uses absolute path for reliability
-  - Icon files copied to both VST3 and Standalone installation folders
-- **File naming conventions updated**
-  - Added `Documentation/` and `Assets/` to standard plugin structure
-  - Standardized icon.ico location in `Assets/` folder
-- CloudWash plugin enhancements
-  - Updated user manual with platform information and APC credits
-  - Clickable Noizefield logo in bottom-right corner
+- **CLAP plugin format — beta (opt-in per plugin).** New `_tools/clap-juce-extensions` submodule (nested `clap`/`clap-helpers` deps — `git submodule update --init --recursive`) bridges JUCE plugins to CLAP since JUCE 9 has no native CLAP wrapper. Plugins opt in during `/apc-plan` (`status.json` -> `formats.clap`, `clap_id` from `clap.id_prefix` in `apc.config.json`, `clap_features`); the impl templates emit a guarded `clap_juce_extensions_plugin(...)` block producing a `<Name>_CLAP` target (`<Name>.clap` artefact). `build-and-install.{ps1,sh}` build + install it (Windows: `%LOCALAPPDATA%\Programs\Common\CLAP`, no admin; macOS: `~/Library/Audio/Plug-Ins/CLAP`; Linux: `~/.clap`) and run `clap-validator` (`scripts/clap-validator-integration.*`, `Install-ClapValidator` downloads a release binary) — pluginval cannot read CLAP. The Inno installer gains a conditional "CLAP Plugin" component (`{commoncf}\CLAP`), the macOS DMG a `CLAP/` folder, CI a status.json-gated `<Name>_CLAP` build step + `.clap` artifact collection (plugin CI lives in the apc-plugins repo — port the documented pattern from `docs/github-actions.md` there), and `apc.config.json` gains `clap.id_prefix` + `paths.clap_install_dir`. Root CMake gate: `APC_ENABLE_CLAP` (ON; a missing submodule never breaks configure). `plugins/ClapSmokeTest/` is the canonical opt-in example and smoke test. **Beta disclaimer:** CLAP support could not be fully tested yet — a basic plugin configures, builds, validates and loads, but it is not battle-tested across DAWs. Known issue `clap-001`: upstream wrapper skips `paramsRescan` after `state.load`, so `clap-validator`'s `state-reproducibility-*` tests fail on all APVTS plugins until free-audio/clap-juce-extensions PR #189 merges (non-fatal, harmless in real hosts).
 
-### Changed
-- Improved README with correct repository links
-- Updated logo URL to point to Noizefield organization
-- Fixed LICENSE reference (now points to LICENCE.md)
-- **Windows installer improvements**
-  - Changed to 64-bit installation mode (`ArchitecturesAllowed=x64compatible`)
-  - Installer now suggests `C:\Program Files\Common Files\VST3\` instead of x86 folder
-  - Added icon.ico to installation files for uninstall display
-  - Fixed `UninstallDisplayIcon` to show plugin icon in Windows "Add or Remove Programs"
-  - Build script (`build-and-install.ps1`) now automatically embeds icons post-build
+## [1.7.0] - 2026-10-09
+
+### Added
+
+- **Host-agnostic subagent orchestration (`/apc-orchestrate`).** Canonical worker profiles in `.agents/agents/*.md` (`cheap-worker` / `standard-worker` / `deep-worker` / `expert-worker`, mirroring the Codex TOML tiers) are read natively by Devin and synced to `.claude/agents/` + `.opencode/agent/` by `scripts/sync-agents.ps1` / `.sh` (tool-name normalization, `mode: subagent`, write/patch hard-deny on restricted profiles, `-Check`/`--check` CI mode). New `orchestrate` skill + `apc-orchestrate` workflow/command decompose a goal into disjoint-file subtasks, run workers in bounded parallel waves, verify objectively, and integrate — with sequential/`codex exec` fallback on hosts without native subagents. Docs: `docs/orchestration.md`.
+
+## [1.6.0] - 2026-09-29
+
+### Added
+
+- **UI layout contract — rem-grid system, `ui-map` as-built manifest, lint gate, Hub review tool** (`schemas/ui-map.schema.json`, `scripts/ui-compose.js`, `scripts/ui-lint.js`, `tools/ui-preview/`). Plugin UIs declare geometry against a shared contract; `ui-lint` runs as a gate.
+- **Visage adaptive raster recovery + Windows crash minidumps** (known-issue docs visage-001/002); crash handler gated to the Standalone wrapper.
+- **`.devin/skills/apc-*` — first-class Devin command adapters** pointing at `.agents/workflows/apc-*.md`; namespaced as `/devin:apc-*` where same-named skills exist in multiple imported dirs.
+- **Cross-platform plugin build CI** with selectors; plugin sources live under `plugins/` and the plugin build workflows moved to the apc-plugins repo.
 
 ### Fixed
-- WebView UI integration for CloudWash
-- Parameter binding between C++ backend and JavaScript frontend
-- Grain visualization connected to real audio processing
-- Build and installation scripts for Windows 11
-- Visage preview input routing (knobs receive mouse events)
-- **Windows installer icon issues**
-  - Desktop shortcuts now display correct plugin icon (not default Windows icon)
-  - Executable files now have embedded icons visible in Windows Explorer
-  - Uninstall entry in Windows Programs list now shows plugin icon
-  - Fixed PowerShell script syntax errors (Unicode checkmark characters)
-- **Installation path issues**
-  - VST3 plugins now correctly install to 64-bit Program Files folder
-  - Prevented installation to Program Files (x86) for 64-bit builds
+
+- YAML frontmatter for APC skills (names/descriptions no longer broken or empty in host skill loaders).
+- Hub tools check resolves the pluginval binary per OS instead of a single hardcoded path.
+- **`build-and-install.ps1`: stale version in Windows File Properties after a `VERSION` bump (known issue `build-006`).** JUCE generates `<Name>_resources.rc` once and its build rule depends only on the icon, so the DLL/EXE kept the old version number. After configure, the script now compares the `.rc` with the `VERSION` in `Info.txt` and deletes the `.rc` only when they differ, so it is regenerated then and only then (no extra relink on ordinary builds).
+- **`build-and-install.ps1` + `pluginval-integration.ps1`: plugins whose `PRODUCT_NAME` differs from the folder name.** The VST3 bundle and Standalone `.exe` are named after `PRODUCT_NAME` (`My Plugin.vst3` for `plugins/MyPlugin`), so the name-based lookup found nothing and pluginval, the install and the icon step were skipped. They are now found by location in the plugin's own `Release` output. pluginval gets the path quoted: `Start-Process` joins `-ArgumentList` without quoting, so a path with a space was split.
+- **`state-management.ps1` + `lib/Get-ApcPaths.ps1`: read `status.json` and `apc.config.json` as UTF-8.** Windows PowerShell 5.1 decodes `Get-Content` without `-Encoding` as ANSI, so a file saved without a BOM (by an agent, a text editor, the `.sh` scripts, or `apc doctor --fix`) had its non-ASCII text (an em dash, a publisher name with an accent) garbled on the next read-modify-write.
+- **`backup.ps1` and the ship skill: zips with forward-slash entry names.** `Compress-Archive` in Windows PowerShell 5.1 stores entry names with backslashes (`Windows\VST3\...`), which macOS and Linux unzip as flat files with backslashes in their names. New `scripts/lib/New-ReleaseZip.ps1` writes `/` separators with the .NET zip classes that ship with PowerShell 5.1 and 7 (nothing to install); the zip layout is unchanged.
+- Known issue `build-006` (stale version resource) with resolution doc.
+
+## [1.5.1] - 2026-09-14
+
+### Fixed
+
+- **`scripts/terminal-monitoring.ps1`: failed native commands were reported as success.** A PowerShell job "completes" even when `cmake`/`msbuild` exit non-zero, so `Invoke-MonitoredCommand` returned exit code 0 for broken builds. The wrapped command now throws on a non-zero `$LASTEXITCODE`. Native stderr (CMake warnings) is collected as text instead of surfacing from `Receive-Job` as a terminating `NativeCommandError` under `$ErrorActionPreference = "Stop"`.
+- **`scripts/lib/Get-ApcPaths.ps1` + `build-and-install.ps1`: resolve a *working* cmake.** New `Resolve-ApcCMakeExe` / `Initialize-ApcCMakePath` / `Test-ApcCMakeExe` check PATH, then vswhere, then the VS 2022 and standalone install locations, and verify each candidate with `cmake --version`. A stale pip/py `cmake` shim on PATH (exits 1, prints nothing) no longer breaks the build; `system-check.ps1` shares the same resolver.
+- **`scripts/pluginval-integration.ps1`: `--strict` is not a pluginval flag.** Strictness is passed as `--strictness-level <1..10>` (default 5, `-Strict` = 10) with a 120 s per-test timeout. The binary is resolved from `_tools/pluginval-bin/`, the source submodule, a submodule build, or PATH instead of one hardcoded path.
+- **`scripts/state-management.{ps1,sh}`: accept the `*_complete` phase labels.** `agent.md`, the phase gates and every `status.json` use `ideation_complete` / `plan_complete` / ... but the schema only listed the bare names, so `Update-PluginState` rejected them and `Test-PluginState` could not order them.
+- **`scripts/validate-webview-setup.ps1`: don't require `js/index.js` for an inline UI.** Per webview-008 the preferred layout is a single `index.html` with the JUCE frontend library inlined; external `js/` files are only required when `index.html` actually references a `<script src>`.
+- `scripts/system-check.ps1`: Python probe no longer errors when neither `py` nor `python` is installed; new `webview2_sdk` check reports whether the Microsoft.Web.WebView2 NuGet package JUCE's `FindWebView2.cmake` needs is present (with the install command as a hint).
+- **`build-and-install.ps1`: stale version in Windows File Properties after a `VERSION` bump (known issue `build-006`).** JUCE generates `<Name>_resources.rc` once and its build rule depends only on the icon, so the DLL/EXE kept the old version number. After configure, the script now compares the `.rc` with the `VERSION` in `Info.txt` and deletes the `.rc` only when they differ, so it is regenerated then and only then (no extra relink on ordinary builds).
+- **`build-and-install.ps1` + `pluginval-integration.ps1`: plugins whose `PRODUCT_NAME` differs from the folder name.** The VST3 bundle and Standalone `.exe` are named after `PRODUCT_NAME` (`My Plugin.vst3` for `plugins/MyPlugin`), so the name-based lookup found nothing and pluginval, the install and the icon step were skipped. They are now found by location in the plugin's own `Release` output. pluginval gets the path quoted: `Start-Process` joins `-ArgumentList` without quoting, so a path with a space was split.
+- **`state-management.ps1` + `lib/Get-ApcPaths.ps1`: read `status.json` and `apc.config.json` as UTF-8.** Windows PowerShell 5.1 decodes `Get-Content` without `-Encoding` as ANSI, so a file saved without a BOM (by an agent, a text editor, the `.sh` scripts, or `apc doctor --fix`) had its non-ASCII text (an em dash, a publisher name with an accent) garbled on the next read-modify-write.
+- **`backup.ps1` and the ship skill: zips with forward-slash entry names.** `Compress-Archive` in Windows PowerShell 5.1 stores entry names with backslashes (`Windows\VST3\...`), which macOS and Linux unzip as flat files with backslashes in their names. New `scripts/lib/New-ReleaseZip.ps1` writes `/` separators with the .NET zip classes that ship with PowerShell 5.1 and 7 (nothing to install); the zip layout is unchanged.
+
+### Added
+
+- **`build-and-install.ps1` caps compiler parallelism** at half the logical cores via `$env:_CL_=/MP<n>` (override with `APC_BUILD_JOBS`), and selects the 64-bit-hosted compiler (`$env:PreferredToolArchitecture=x64`; the 32-bit-hosted `cl.exe` stops at about 4 GB). JUCE's recommended flags add `/MP` + `/GL`, and 16+ concurrent LTO compiles of the JUCE unity files exhaust RAM with `C1060: compiler is out of heap space`. `_CL_`, not `CL`: `cl.exe` reads `CL` before its command line, where JUCE's own `/MP` comes later and wins, so the first version of this cap had no effect.
+- Known issue `build-004` (C1060 out of heap space) with resolution doc.
+
+## [1.5.0] - 2026-09-13
+
+### Added
+
+- **APC Hub — live local dashboard (`/apc-hub`).** Vanilla, zero-dependency web command center served by `hub/server.js` (Node stdlib, loopback, read-only `/api/v1/*` plus a validated Settings save and design previews): projects, skills, commands, designs, scripts, templates, tools, settings, documentation center with chapters/search/bookmarks, GitHub update check, and consistency radar. Approved design language in `hub/_design/` (APC RASTER: rectangles only, ASCII-first, dark default, amber/phosphor signals).
+
+- **`bin/apc.js` — single cross-platform CLI** (Idea 1, phase 1+2; `node bin/apc.js …`, also exposed as the `apc` npm bin). Zero deps, Node 18+. Commands: `version [--json]`, `version sync [--fix]`, `paths [--json] [--plugin N]`, `doctor [--fix]`, `build <Plugin> [--no-install] [--skip-tests] [--strict]`, `validate <webview|webview-order|visage|plugin|state> [--plugin N] [--json]`, `backup` / `rollback`. `version`/`paths` and 4 of 5 validators (`webview`, `webview-order`, `visage`, `plugin`) run natively in Node — same checks as the `.ps1` originals (PowerShell `-match` is case-insensitive, so all ported patterns use `/i`), with `--json` machine output for agents. `validate state` stays shell-bound: it functionally tests the PowerShell state-management module itself and can only migrate with it.
+- **`doctor --fix`**: safe mechanical auto-fixes only (create `apc.config.json` from example, create missing plugins/build/release dirs, init missing JUCE submodule). Toolchain installs are never run unsupervised — exact per-OS install commands are printed instead.
+- **Post-ship iteration (Idea 13): `/apc-patch` + `/apc-evolve` (generations model).** A shipped generation is read-only; new work opens a generation first. `apc patch` (bugfix: patch-digit bump, phase → `code`, design flags kept) and `apc evolve` (feature: minor bump, phase → `plan`, `.ideas/{version}-brief.md` stub, optional codename) verify shipped state, backfill the frozen prior-generation record on first use (zero migration), snapshot `status.json`, and bump the version. `apc freeze` (called by the ship flow) records tag + timestamp and returns the machine to rest; `apc status [--json]` renders the generation timeline with a frozen flag. Closed states redirect instead of dead-ending: `/apc-resume` suggests patch/evolve on shipped plugins, `/apc-impl` blocks on frozen generations with a redirect, and `agent.md` carries the one-sentence rule. Workflows `apc-patch.md` / `apc-evolve.md` added with host mirrors (`.claude`, `.kilocode`, `.agent`, `.opencode`) and Codex `patch`/`evolve` actions.
+- **`npm test` — 15-test suite** (`test/apc.test.js`, `node:test`, zero deps): version/paths/validators/version-sync/arg-translation against isolated temp fixtures via `APC_ROOT`. All green on Windows; `.ps1`-dispatch test runs on Windows, native checks everywhere.
+- **Framework versioning, single source of truth: `package.json` (`1.4.0`).** `apc version` / `apc --version`, version header in `apc doctor`, README version badge (shields `github/package-json/v`, tracks `package.json` on main — no manual updates), and generated `hub/version.js` (`window.APC_VERSION`, for the Hub web UI over `file://`). Bump rule: change `package.json`, then run `node bin/apc.js version sync` (regenerates `hub/version.js`, verifies the CMake pin).
+- HOL Plugin Scanner GitHub Action, `SECURITY.md`, and Dependabot for the awesome-ai-plugins listing requirements.
+
+### Changed
+
+- **Root `CMakeLists.txt` reads the framework version from `package.json`** at configure time (`APC_VERSION`, reported as `APC version: X (from package.json)`). Fixes drift where CMake said `1.0.0` while `package.json` said `1.4.0`.
+- **`bin/setup.js` banner reads the version from `package.json`** instead of a hardcoded string.
+- `AGENTS.md` build rule prefers `node bin/apc.js build <Name>`; `docs/command-reference.md` documents the CLI surface (`validate` native kinds + `--json`, `doctor --fix`, `npm test`).
+- `docs/PROJECT_STRUCTURE.md` documents `hub/` (Hub dashboard → control app), `hub/version.js`, and `test/`.
+- `docs/PROJECT_STRUCTURE.md` documents `hub/` (Hub dashboard → control app) and `hub/version.js`.
+- **Docs-as-truth pass (12 files):** platform tables now show local build ✅ on Windows/macOS/Linux (`FAQ`, `docs/README`, lifecycle); `CONTRIBUTING.md` updated to JUCE 9 + current Visage status + docs-drift checklist; all command refs use primary `/apc-*` names; `.agent/` → `.agents/` paths fixed; `build-system.md` CMake example uses `APC_PLUGINS_DIR` + correct Linux EGL deps; `webview-framework.md` rewritten for the JUCE 9 interop path (`@juce-framework/webview`, inline bundle) instead of the deleted JUCE 8 `native/javascript` path.
+
+### Fixed
+
+- `webview-framework.md` attachment-order guidance: attachments must be created **BEFORE** `addAndMakeVisible()` (the old text described the webview-004 crash recipe).
+- `CMakeLists.txt` project version `1.0.0` → dynamic from `package.json` (`1.4.0`).
+- `bin/apc.js` config reader strips UTF-8 BOM (`apc.config.json` is PowerShell-written and may carry one).
+- Root `CMakeLists.txt` config reader uses `utf-8-sig`: a BOM-carrying `apc.config.json` previously failed silently (`ERROR_QUIET`) and fell back to `./plugins`, ignoring a custom `paths.plugins_dir`.
+- Legacy skill tidy-up: the 6 `skill_*` alias stubs stay as permanent redirects (verified content-free — each is a 2-line pointer), and all internal references now resolve to canonical skills. Dropped the redundant alias mirror dirs from `.kilocode/skills/` + `.agent/skills/` (matching `.claude/`), repointed `apc-ship.md` (7 refs), `apc-debug.md`, the `agent.md` phase table, both guides, `plan` skill routing, and the canonical `debug`/`design` frontmatter names. Hub no longer flags them: `aliasStub` detection with `[ALIAS]` display, consistency check `ok` (verified against the live server).
+
+### Changed
+
+- **Ship output is `release/`** (`paths.release_dir`), not `dist/`. Installer scripts, Inno Setup, GitHub Actions artifact collection, skills, and docs now honor the configured release directory. Existing `dist/` leftovers are gitignored.
+- Known-issue "automated fix" snippets are printed for review instead of being executed.
+- **Custom `paths.plugins_dir` / `build_dir` / `release_dir` are honored end-to-end.** Utility scripts, APC workflows/skills (`.claude` / `.agent` / `.kilocode`), and guides resolve plugins via `Get-ApcPluginPath` / `apc_plugin_path` instead of hardcoded `plugins/`. Relative sibling layouts (e.g. `../apc_plugins`) work without a `./plugins` junction. `/apc-setup` documents junction as optional.
+
+### Fixed
+
+- Backup, rollback, preview-design, WebView/Visage validators, pluginval status updates, and related helpers no longer assume the default in-repo `plugins/` folder when config overrides paths.
+
+### Removed
+
+- `notes/PLAN1-macos.md` and `notes/PLAN1-results.md` (obsolete macOS port planning; behavior lives in `scripts/*.sh` and agent rules).
 
 ---
 
-## [0.2.0] - 2026-01-31
+## [1.4.0] - 2026-08-14
 
 ### Added
 
-#### Cross-Platform Build System (Ship Workflow Improvement)
-- **GitHub Actions CI/CD** for automated cross-platform builds
-  - `.github/workflows/build-release.yml` - Release builds for Windows, macOS, Linux
-  - `.github/workflows/build-pr.yml` - PR validation with automatic plugin detection
-  - Platform selection support (Windows, macOS, Linux, or combinations)
-  - Manual workflow dispatch with dropdown options
-  - Automatic artifact packaging and GitHub Release creation
-
-- **CMake Cross-Platform Support**
-  - Platform detection in root `CMakeLists.txt` (Windows/macOS/Linux)
-  - Platform-specific plugin format selection:
-    - Windows: VST3, Standalone
-    - macOS: VST3, AU, Standalone (Universal Binary)
-    - Linux: VST3, LV2, Standalone
-  - WebView backend selection per platform (WebView2, WKWebView, WebKitGTK)
-  - macOS Universal Binary support (Intel + Apple Silicon)
-  - Updated all plugin CMakeLists.txt files (CloudWash, AngelGrain, nf_gnarly, gnarly2)
-
-- **Windows Installer Creation**
-  - Inno Setup installer template (`scripts/installer/installer-template.iss`)
-  - PowerShell installer generation script (`scripts/installer/create-windows-installer.ps1`)
-  - License agreement (EULA) integration
-  - Custom installation path selection
-  - Component selection (VST3, Standalone, Presets, Documentation)
-  - Start Menu and Desktop shortcuts
-  - Uninstaller with complete removal
-
-- **Documentation**
-  - `docs/README.md` - Main documentation with build system overview
-  - `docs/github-actions.md` - Detailed GitHub Actions usage guide
-  - `docs/ship-workflow.md` - Ship phase documentation with platform selection
-  - `docs/installer-creation.md` - Installer creation guide for all platforms
-  - `templates/CMakeLists.txt.template` - Template for new plugins
-  - `templates/LICENSE.txt.template` - EULA template for installers
+- **`/apc-setup`** guided first-run wizard (toolchain, relocatable paths, UI defaults, per-phase model preferences)
+- **`apc.config.example.json`** + path helpers (`scripts/lib/Get-ApcPaths.ps1`, `scripts/lib/apc-paths.sh`)
+- Relocatable **`plugins` / `build` / `release`** directories via config and CMake `APC_PLUGINS_DIR`
+- Primary **`/apc-*` slash commands** (`/apc-dream`, `/apc-plan`, `/apc-design`, `/apc-impl`, …) with deprecated short aliases
+- **`docs/model-routing.md`** for global per-phase AI model preferences
+- Expanded **system-check** (Git, Node, WebView2, JUCE major ≥ 9, Linux EGL/WebKit notes)
 
 ### Changed
-- **Ship Workflow** (`.kilocode/workflows/ship.md`)
-  - Added platform selection prompt (local vs GitHub Actions)
-  - Hybrid build approach (use local build + GitHub for other platforms)
-  - Support for selective platform building to save CI minutes
-  - Updated to reference detailed skill documentation
 
-- **Skill Packaging** (`.kilocode/skills/skill_packaging/SKILL.md`)
-  - Complete rewrite with cross-platform support
-  - Step-by-step implementation guide
-  - Platform detection and user interaction logic
-  - GitHub Actions integration
-  - PowerShell function implementations
+- **JUCE submodule upgraded to 9.0.1**
+- WebView templates/docs updated for `native/typescript/webview-interop` and `@juce-framework/webview`
+- Build scripts honor `apc.config.json` paths
+- README rewritten for setup-first workflow and `/apc-*` commands
+- Softened “development only” disclaimer; APC is ready for real plugin work while still evolving
 
-### Known Limitations / Future Work
+### Fixed
 
-The following features were designed but not fully implemented:
+- `system-check.ps1` CMake detection (multi-line `--version` no longer false-negative)
 
-- **Phase 4: macOS Installer Creation** - NOT IMPLEMENTED
-  - Requires macOS for DMG/PKG creation (`hdiutil`, `pkgbuild`, `productbuild`)
-  - Code signing requires Apple Developer certificate
-  - Can be built on macOS using prepared structure from GitHub artifacts
-  - **TODO**: Add macOS installer creation to GitHub Actions workflow
+---
 
-- **Phase 5: Linux Package Creation** - NOT IMPLEMENTED
-  - Requires Linux for AppImage/DEB creation (`appimagetool`, `dpkg-deb`)
-  - Can be built on Linux using prepared structure from GitHub artifacts
-  - **TODO**: Add Linux package creation to GitHub Actions workflow
+## [0.3.0] - 2026-03-23
 
-- **GitHub Actions Installer Creation** - NOT IMPLEMENTED
-  - Current workflow creates ZIP distributions only
-  - Windows installer (.exe) created locally via PowerShell script
-  - **TODO**: Add installer creation steps to GitHub Actions for all platforms
-  - This would enable fully automated release with installers
+### Added
 
-- **GitHub Actions Build Failures** - KNOWN ISSUES
-  - macOS build fails: `JUCEModuleSupport.cmake` not found during CMake configuration
-  - Linux build fails: `libwebkit2gtk` package compatibility issues on Ubuntu 24.04
-  - **TODO**: Fix submodule checkout and WebKit package dependencies for CI builds
-  - Windows builds are working correctly
+- **macOS Support** (PR #6 by vjcharles)
+  - `scripts/build-and-install.sh` — macOS build script (Xcode generator, matches PS1 feature parity)
+  - `scripts/state-management.sh` — Bash port of the state management module
+  - `scripts/error-detection.sh` — Bash port of the error detection and known-issues lookup
+  - `scripts/backup.sh` / `scripts/rollback.sh` — Backup and rollback for macOS
+  - `scripts/preview-design.sh` — Design preview script for macOS
+  - `scripts/system-check.sh` — System dependency checker for macOS (Xcode, CMake, JUCE)
+  - `scripts/installer/create-macos-installer.sh` — DMG installer creation script for macOS
+  - `notes/PLAN1-macos.md` / `notes/PLAN1-results.md` — Contributor's porting notes
+
+- **npx Installer** (`npx audio-plugin-coder@latest`)
+  - One-command setup: clones the repo and guides through initial configuration
+  - Platform-aware: detects Windows, macOS, and Linux and shows relevant next steps
+  - Checks for required tools (Git, Node.js, VS Code, CMake, VS Build Tools / Xcode / GCC)
+  - Zero dependencies — pure Node.js stdlib
+  - Works direct from GitHub: `npx github:Noizefield/audio-plugin-coder`
+
+- **Versioning**
+  - Added `package.json` with semantic versioning
+  - Git tags now used to mark releases (e.g., `v0.3.0`)
+
+### Changed
+
+- **Agent rules updated for cross-platform awareness** (PR #6)
+  - `agent.md`: OS detection logic — uses PowerShell on Windows, Bash on macOS; never mixes shells
+  - `juce-build-protocols.md`: Platform notes for macOS Xcode generator and macOS CI requirements
+  - `file-naming-conventions.md`: Script extension guidance (`.ps1` on Windows, `.sh` on macOS)
+
+### Security
+
+- **Tightened Claude Code permissions** (PR #6, prompt injection audit by vjcharles)
+  - Removed overly broad wildcards: `powershell:*`, `powershell -Command:*`, `python:*`
+  - Added explicit deny list:
+    - `curl`, `wget`, `Invoke-WebRequest` — blocks external network calls by agent
+    - PowerShell expression-invocation aliases — blocks eval-style command execution
+    - Piping to `bash` / `sh` — blocks shell injection
+    - `~/.ssh`, `~/.aws` — blocks credential file access
+    - `base64 -d` — blocks common exfiltration encoding
+    - `python -c`, `python3 -c`, `node -e` — blocks inline code execution
+
+---
+
+## [0.2.0] - 2026-02-15
+
+### Added
+
+- **FFGL Bridge Template** (PR #2 by 12Matt3r)
+  - FreeFrameGL 2.0 plugin template for VJ software (Resolume, VDMX, TouchDesigner)
+  - JUCE 8 integration with parameter handling via `AudioProcessorValueTreeState`
+  - OpenGL rendering with host-provided context
+  - Thread-safe parameter caching for real-time performance
+  - One-click setup scripts (`scripts/setup_bridges.ps1`, `scripts/setup_bridges.bat`)
+
+- **Max/MSP External Template** (PR #2 by 12Matt3r)
+  - Max/MSP external template using Cycling '74 Min-API
+  - JUCE 8 DSP and UI integration
+  - Double-precision audio processing support
+  - Native window handle extraction for UI embedding
+  - Floating window fallback for UI display
+
+- **Consolidated Templates Folder**
+  - All templates moved to single root `templates/` folder
+  - `templates/visage/` — Visage (C++) UI templates
+  - `templates/webview/` — WebView (HTML5) UI templates
+  - `templates/ffgl/` — FFGL visual plugin templates
+  - `templates/max-external/` — Max/MSP external templates
+  - `templates/status-template.json` — Plugin state tracking template
+
+- **Visage Integration**
+  - `APC_ENABLE_VISAGE` CMake option and optional subdirectory wiring
+  - `scripts/validate-visage-setup.ps1` validation script
+  - Visage gnarly3 pilot UI (experimental): knob interaction, live filter graph
+  - Windowless preview rendering path for stability
+
+- **CloudWash Plugin** — granular texture processor (Mutable Instruments Clouds adaptation)
+  - 4 processing modes: Granular, Pitch Shifter, Looping Delay, Spectral
+  - WebView-based UI with real-time visualization
+  - 13 parameters with JUCE backend integration
+  - Noizefield branding with clickable logo (opens external browser)
+  - 300+ line `USER_MANUAL.md`
+
+- **Automatic Documentation System**
+  - `Documentation/` folder auto-created per plugin; all files auto-included in installer
+  - Start Menu shortcuts to User Manual and Documentation folder
+  - New guide: `.claude/guides/documentation-system.md`
+
+- **WebView External URL Support**
+  - Plugins can open URLs in the system's default browser
+  - Implemented via `window.__JUCE__.backend.emitEvent()` and `juce::URL::launchInDefaultBrowser()`
+
+- **GitHub Actions CI/CD**
+  - `.github/workflows/build-release.yml` — release builds for Windows, macOS, Linux
+  - `.github/workflows/build-pr.yml` — PR validation with automatic plugin detection
+  - Platform selection via workflow_dispatch
+  - Automatic GitHub Release creation on git tags
+
+- **CMake Cross-Platform Support**
+  - Platform detection in root `CMakeLists.txt`
+  - Windows: VST3 + Standalone, macOS: VST3 + AU + Standalone (Universal), Linux: VST3 + LV2 + Standalone
+  - WebView2 (Windows), WKWebView (macOS), WebKitGTK (Linux)
+
+- **Windows Installer**
+  - Inno Setup template (`scripts/installer/installer-template.iss`)
+  - PowerShell generator (`scripts/installer/create-windows-installer.ps1`)
+  - EULA, component selection (VST3, Standalone, Presets, Docs), shortcuts, uninstaller
+
+- **Troubleshooting Auto-Capture System**
+  - Known issues database (`.claude/troubleshooting/known-issues.yaml`)
+  - Auto-documents solutions after 3 failed attempts
+
+- **State Management System**
+  - `status.json` tracking for all plugins
+  - Phase gating, validation, backup, and rollback
+
+### Changed
+
+- Design phase branches by framework: WebView → HTML preview; Visage → C++ scaffold (no HTML)
+- Implementation phase routes templates by framework and runs Visage validation
+- Build/preview scripts auto-enable `APC_ENABLE_VISAGE` when `ui_framework == visage`
+- Agent folders (`.kilocode`, `.claude`, `.agent`) synchronized with consistent content
+- Windows installer now 64-bit only (`ArchitecturesAllowed=x64compatible`)
+- Documentation placed inside plugin bundle (keeps VST3 root clean)
+
+### Fixed
+
+- WebView UI integration and parameter binding for CloudWash
+- Visage preview input routing (knobs receive mouse events)
+- Desktop shortcuts now display correct plugin icon
+- VST3 plugins install to 64-bit Program Files (not x86)
+- Linux CI: added `NEEDS_WEB_BROWSER`, JACK deps, and C language requirement
+- macOS CI: removed per-target `XCODE_ATTRIBUTE_ARCHS` (conflicts with global `CMAKE_OSX_ARCHITECTURES`)
+- LV2/Standalone CI: wrapped builds with `xvfb-run` for headless display
 
 ---
 
 ## [0.1.0-beta] - 2026-01-31
 
 ### Added
+
 - Initial public beta release
 - Five-phase workflow system (Dream → Plan → Design → Implement → Ship)
-- Dual UI framework support (Visage and WebView)
+- Dual UI framework support: Visage (pure C++) and WebView (HTML5/JS)
 - JUCE 8 integration with CMake build system
-- PowerShell automation scripts
-- Agent-agnostic design (Claude Code, Antigravity, Kilo support)
-- Comprehensive skill system:
-  - Ideation and concept development
-  - Architecture planning
-  - UI design (both Visage and WebView)
-  - DSP implementation
-  - Packaging and distribution
-- Workflow orchestration with slash commands
+- PowerShell automation scripts for Windows
+- Agent-agnostic design: works with Claude Code, Antigravity, and Kilo
+- Comprehensive skill system (ideation, architecture, design, DSP, packaging)
+- Workflow orchestration with slash commands (`/dream`, `/plan`, `/design`, `/impl`, `/ship`)
 - File naming conventions and project structure standards
 - Windows 11 support with Visual Studio 2022
 
-### Known Limitations
-- Visage UI framework not fully implemented (planned)
-- macOS support pending
-- Linux support pending
-- VST2 format not supported
-- Audio Unit (AU) format not supported
-- CLAP format not supported
+### Known Limitations at Release
+- Visage UI framework scaffolding only (full implementation planned)
+- macOS and Linux support pending
+- VST2, Audio Unit (AU), and CLAP formats not supported
 
 ---
 
 ## Release Notes
 
 ### Version Numbering
-- **Major.Minor.Patch** format (e.g., 1.0.0)
-- **Alpha/Beta** suffixes during development (e.g., 0.1.0-beta)
+- **Major.Minor.Patch** format following [Semantic Versioning](https://semver.org/)
+- **Beta suffix** during pre-1.0 development (e.g., `0.1.0-beta`)
+- Git tags mark each release (`v0.3.0`, `v0.2.0`, etc.)
 
 ### Support
 For issues, feature requests, or questions:
@@ -219,4 +306,4 @@ For issues, feature requests, or questions:
 
 ---
 
-**Built with ❤️ for the audio development community**
+**Built with love for the audio development community**

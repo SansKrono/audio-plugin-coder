@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# Resolve APC paths from apc.config.json (plugins / build / release).
+# Usage: source scripts/lib/apc-paths.sh
+
+apc_repo_root() {
+    local here
+    here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -f "$here/../../CMakeLists.txt" ]]; then
+        cd "$here/../.." && pwd
+    elif [[ -f "$here/../CMakeLists.txt" ]]; then
+        cd "$here/.." && pwd
+    else
+        pwd
+    fi
+}
+
+apc_resolve_path() {
+    local value="$1"
+    local root="$2"
+    if [[ "$value" = /* ]] || [[ "$value" =~ ^[A-Za-z]:[\\/] ]]; then
+        # Absolute (Unix or Windows-style)
+        printf '%s\n' "$value"
+    else
+        # Join then normalize ".." (directory need not exist yet)
+        local joined="$root/$value"
+        if command -v python3 >/dev/null 2>&1; then
+            python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$joined"
+        elif command -v realpath >/dev/null 2>&1; then
+            realpath -m "$joined" 2>/dev/null || printf '%s\n' "$joined"
+        else
+            printf '%s\n' "$joined"
+        fi
+    fi
+}
+
+apc_read_config_field() {
+    # apc_read_config_field <repo_root> <jq_path> <default>
+    local root="$1"
+    local jq_path="$2"
+    local default="$3"
+    local cfg="$root/apc.config.json"
+    local example="$root/apc.config.example.json"
+    local file=""
+
+    if [[ -f "$cfg" ]]; then
+        file="$cfg"
+    elif [[ -f "$example" ]]; then
+        file="$example"
+    else
+        printf '%s\n' "$default"
+        return 0
+    fi
+
+    if command -v jq &>/dev/null; then
+        local val
+        val="$(jq -r "$jq_path // empty" "$file" 2>/dev/null || true)"
+        if [[ -n "$val" && "$val" != "null" ]]; then
+            printf '%s\n' "$val"
+            return 0
+        fi
+    else
+        # Minimal fallback without jq for common path keys
+        case "$jq_path" in
+            .paths.plugins_dir)
+                grep -oE '"plugins_dir"[[:space:]]*:[[:space:]]*"[^"]+"' "$file" | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || printf '%s\n' "$default"
+                return 0
+                ;;
+            .paths.build_dir)
+                grep -oE '"build_dir"[[:space:]]*:[[:space:]]*"[^"]+"' "$file" | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || printf '%s\n' "$default"
+                return 0
+                ;;
+            .paths.release_dir)
+                grep -oE '"release_dir"[[:space:]]*:[[:space:]]*"[^"]+"' "$file" | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || printf '%s\n' "$default"
+                return 0
+                ;;
+        esac
+    fi
+    printf '%s\n' "$default"
+}
+
+apc_load_paths() {
+    # Sets: APC_REPO_ROOT APC_PLUGINS_DIR APC_BUILD_DIR APC_RELEASE_DIR APC_CLAP_INSTALL_DIR
+    APC_REPO_ROOT="$(apc_repo_root)"
+    local plugins_rel build_rel release_rel clap_rel clap_default
+    plugins_rel="$(apc_read_config_field "$APC_REPO_ROOT" ".paths.plugins_dir" "plugins")"
+    build_rel="$(apc_read_config_field "$APC_REPO_ROOT" ".paths.build_dir" "build")"
+    release_rel="$(apc_read_config_field "$APC_REPO_ROOT" ".paths.release_dir" "release")"
+    # CLAP spec per-user dirs: macOS ~/Library/Audio/Plug-Ins/CLAP, Linux ~/.clap
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        clap_default="$HOME/Library/Audio/Plug-Ins/CLAP"
+    else
+        clap_default="$HOME/.clap"
+    fi
+    clap_rel="$(apc_read_config_field "$APC_REPO_ROOT" ".paths.clap_install_dir" "$clap_default")"
+    APC_PLUGINS_DIR="$(apc_resolve_path "$plugins_rel" "$APC_REPO_ROOT")"
+    APC_BUILD_DIR="$(apc_resolve_path "$build_rel" "$APC_REPO_ROOT")"
+    APC_RELEASE_DIR="$(apc_resolve_path "$release_rel" "$APC_REPO_ROOT")"
+    APC_CLAP_INSTALL_DIR="$(apc_resolve_path "$clap_rel" "$APC_REPO_ROOT")"
+    export APC_REPO_ROOT APC_PLUGINS_DIR APC_BUILD_DIR APC_RELEASE_DIR APC_CLAP_INSTALL_DIR
+}
+
+apc_plugin_path() {
+    local name="$1"
+    if [[ -z "${APC_PLUGINS_DIR:-}" ]]; then
+        apc_load_paths
+    fi
+    printf '%s\n' "$APC_PLUGINS_DIR/$name"
+}
+
+apc_setup_completed() {
+    local root
+    root="$(apc_repo_root)"
+    local cfg="$root/apc.config.json"
+    if [[ ! -f "$cfg" ]]; then
+        return 1
+    fi
+    if command -v jq &>/dev/null; then
+        [[ "$(jq -r '.setup.completed // false' "$cfg")" == "true" ]]
+    else
+        grep -q '"completed"[[:space:]]*:[[:space:]]*true' "$cfg"
+    fi
+}
+
+apc_model_for_phase() {
+    local phase="$1"
+    local root
+    root="$(apc_repo_root)"
+    local cfg="$root/apc.config.json"
+    [[ -f "$cfg" ]] || cfg="$root/apc.config.example.json"
+    [[ -f "$cfg" ]] || return 0
+    if command -v jq &>/dev/null; then
+        jq -c --arg p "$phase" '.models.phases[$p] // empty' "$cfg" 2>/dev/null || true
+    fi
+}
+
+apc_codex_config_file() {
+    local root
+    root="$(apc_repo_root)"
+    if [[ -f "$root/apc.config.json" ]]; then
+        printf '%s\n' "$root/apc.config.json"
+    elif [[ -f "$root/apc.config.example.json" ]]; then
+        printf '%s\n' "$root/apc.config.example.json"
+    fi
+}
+
+apc_codex_tier_for_phase() {
+    local phase="$1"
+    local cfg
+    cfg="$(apc_codex_config_file)"
+    if [[ -n "$cfg" ]] && command -v jq &>/dev/null; then
+        local tier
+        tier="$(jq -r --arg p "$phase" '.models.codex.phase_tiers[$p] // .models.codex.default_tier // empty' "$cfg" 2>/dev/null || true)"
+        if [[ -n "$tier" && "$tier" != "null" ]]; then
+            printf '%s\n' "$tier"
+            return 0
+        fi
+    fi
+    case "$phase" in
+        setup|status|resume|ship) printf 'luna\n' ;;
+        *) printf 'terra\n' ;;
+    esac
+}
+
+apc_codex_tier_field() {
+    # apc_codex_tier_field <tier> <field> <default>
+    local tier="$1"
+    local field="$2"
+    local default="$3"
+    local cfg
+    cfg="$(apc_codex_config_file)"
+    [[ -n "$cfg" ]] || { printf '%s\n' "$default"; return 0; }
+    if command -v jq &>/dev/null; then
+        local val
+        val="$(jq -r --arg t "$tier" --arg f "$field" '.models.codex.tiers[$t][$f] // empty' "$cfg" 2>/dev/null || true)"
+        if [[ -n "$val" && "$val" != "null" ]]; then
+            printf '%s\n' "$val"
+            return 0
+        fi
+    fi
+    printf '%s\n' "$default"
+}
+
+apc_codex_next_tier() {
+    local tier="$1"
+    local cfg
+    cfg="$(apc_codex_config_file)"
+    if ! command -v jq &>/dev/null; then
+        case "$tier" in
+            luna) printf 'terra\n' ;;
+            terra) printf 'sol\n' ;;
+            sol) printf 'astra\n' ;;
+            *) return 0 ;;
+        esac
+        return 0
+    fi
+    local order_json='["luna","terra","sol","astra"]'
+    if [[ -n "$cfg" ]]; then
+        local custom
+        custom="$(jq -c '.models.codex.escalation.order // empty' "$cfg" 2>/dev/null || true)"
+        if [[ -n "$custom" && "$custom" != "null" ]]; then
+            order_json="$custom"
+        fi
+    fi
+    jq -nr --arg t "$tier" --argjson o "$order_json" '
+      ($o | index($t)) as $i
+      | if $i == null then empty
+        elif ($i + 1) < ($o | length) then $o[$i + 1]
+        else empty end
+    '
+}

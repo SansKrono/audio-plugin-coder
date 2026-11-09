@@ -1,0 +1,466 @@
+# .agents\troubleshooting\known-issues.yaml
+issues:
+  - id: cmake-001
+    title: "CMake duplicate target error with JUCE modules"
+    category: build
+    severity: high
+    symptoms:
+      - "CMake Error: add_library cannot create target"
+      - "Target 'juce_core' already exists"
+    error_patterns:
+      - "duplicate target"
+      - "juce_add_modules"
+    resolution_status: solved
+    resolution_file: ../rules/juce-build-protocols.md
+    frequency: 8
+    last_occurred: 2026-01-22
+    
+  - id: webview-001
+    title: "WebView HTML files not loading - path issue"
+    category: webview
+    severity: medium
+    symptoms:
+      - "Blank white screen in plugin"
+      - "Failed to load resource"
+    error_patterns:
+      - "404 in WebView"
+      - "getResourceProviderRoot"
+    resolution_status: solved
+    resolution_file: resolutions/webview-blank-screen.md
+    frequency: 5
+    last_occurred: 2026-01-20
+    
+  - id: webview-002
+    title: "DAW crashes when unloading WebView plugin - member order"
+    category: webview
+    severity: critical
+    symptoms:
+      - "DAW crashes when closing plugin window"
+      - "Segmentation fault on plugin destructor"
+      - "Access violation in WebBrowserComponent destructor"
+      - "Crash only happens in release builds, not debug"
+      - "Crash during plugin unload or project close"
+    error_patterns:
+      - "Access violation"
+      - "Segmentation fault"
+      - "invalid memory access"
+      - "pure virtual function call"
+      - "0xC0000005: Access violation"
+    root_cause: "Member declaration order causes WebBrowserComponent to be destroyed after WebSliderRelay objects it references"
+    resolution_status: solved
+    resolution_file: resolutions/webview-member-order-crash.md
+    frequency: 1
+    last_occurred: 2026-01-24
+    attempts_before_resolution: 1
+    prevention: "Always declare members in order: Relays → WebView → Attachments"
+
+  - id: vst3-002
+    title: "VST3 not appearing in DAW after build"
+    category: packaging
+    severity: medium
+    symptoms:
+      - "Plugin builds but DAW doesn't see it"
+      - "VST3 folder exists but empty in DAW"
+    error_patterns:
+      - "VST3 not found"
+      - "rescan doesn't detect"
+    resolution_status: solved
+    resolution_file: ../../docs/troubleshooting-guide.md
+    frequency: 12
+    last_occurred: 2026-01-22
+
+  - id: build-003
+    title: "Permission denied when copying VST3 to Program Files"
+    category: build
+    severity: low
+    symptoms:
+      - "Plugin compiles successfully but fails during install step"
+      - "Permission denied when copying to C:\\Program Files\\Common Files\\VST3"
+      - "Build completes but VST3 not installed"
+    error_patterns:
+      - "Permission denied"
+      - "file INSTALL cannot make directory"
+      - "C:\\Program Files\\Common Files/VST3"
+    root_cause: "Windows requires administrator privileges to write to Program Files directory"
+    resolution_status: solved
+    resolution_file: ../../docs/troubleshooting-guide.md
+    frequency: 1
+    last_occurred: 2026-01-24
+    attempts_before_resolution: 0
+    prevention: "Run build script as administrator or manually copy VST3 from build directory"
+
+  - id: build-004
+    title: "MSVC C1060 compiler is out of heap space during JUCE module compile"
+    category: build
+    severity: high
+    symptoms:
+      - "Many 'error C1060: compiler is out of heap space' lines across juce_core, juce_graphics, juce_gui_basics"
+      - "Fails while compiling JUCE modules, not the plugin sources"
+      - "Happens on machines with many cores while other large apps are open"
+    error_patterns:
+      - "C1060"
+      - "compiler is out of heap space"
+    root_cause: "JUCE's recommended flags add /MP (compile with all logical cores) and /GL link-time optimisation; each cl.exe instance then needs 1-2 GB. On a 16-core machine with the build script's --fresh full reconfigure, 16 concurrent LTO compiles exhaust RAM."
+    resolution_status: solved
+    resolution_file: resolutions/build-004-compiler-out-of-heap.md
+    frequency: 1
+    last_occurred: 2026-09-08
+    attempts_before_resolution: 1
+    prevention: "scripts/build-and-install.ps1 caps cl.exe parallelism at half the logical cores via $env:_CL_=/MP<n> (cl.exe reads _CL_ after its command line, so the cap overrides JUCE's own /MP; $env:CL is read before it and loses) and runs the 64-bit-hosted compiler ($env:PreferredToolArchitecture=x64). Override the job count with $env:APC_BUILD_JOBS."
+    critical_fix: "Set APC_BUILD_JOBS lower (e.g. 4) or close memory-heavy apps, then rerun build-and-install.ps1"
+
+  - id: build-006
+    title: "Built plugin reports the old version in Windows File Properties after a VERSION change"
+    category: build
+    severity: medium
+    symptoms:
+      - "CMakeLists and status.json say the new version, but the VST3 DLL / Standalone EXE Properties > Details show the old one"
+      - "A full rebuild, even with --fresh, does not change it"
+      - "The host and pluginval see the new version: only the file's version resource is stale"
+    error_patterns:
+      - "_resources.rc"
+      - "FileVersion"
+    root_cause: "JUCE's CMake (_juce_add_resources_rc in JUCEUtils.cmake) generates <Name>_artefacts/JuceLibraryCode/<Name>_resources.rc with juceaide from the configure-time Info.txt, but the custom command depends only on the icon, never on Info.txt. Once the .rc exists it is never regenerated, so VERSION changes do not reach the Windows version resource. JucePlugin_VersionString (a compile definition) does update."
+    resolution_status: solved
+    resolution_file: resolutions/build-006-stale-version-resource.md
+    frequency: 1
+    last_occurred: 2026-09-25
+    attempts_before_resolution: 1
+    prevention: "scripts/build-and-install.ps1 step 1b compares the .rc FileVersion with Info.txt's VERSION after configure and deletes the .rc when they differ (only then: regenerating it every build would force an LTO relink every build)."
+    critical_fix: "Get-ChildItem build\\plugins\\<Name> -Recurse -Filter <Name>_resources.rc | Remove-Item; then rerun build-and-install.ps1"
+
+  - id: webview-003
+    title: "WebView plugin crashes on load - runtime crash"
+    category: webview
+    severity: critical
+    symptoms:
+      - "Plugin crashes immediately when opened in DAW"
+      - "Standalone version crashes on launch"
+      - "No error message, just crash"
+      - "Build succeeds but plugin crashes at runtime"
+      - "WebView2 destructor message appears in logs"
+    error_patterns:
+      - "Access violation"
+      - "Crash on plugin window open"
+      - "WebView2 not found"
+      - "EplDispatchQueue destructor"
+    root_cause: "Multiple possible causes: WebView2 runtime missing, resource provider issues, initialization order problems, standalone audio device issues"
+    resolution_status: solved
+    resolution_file: resolutions/webview-runtime-crash.md
+    frequency: 1
+    last_occurred: 2026-01-24
+    attempts_before_resolution: 3
+    prevention: "Test VST3 in DAW first (more stable than standalone), check WebView2 runtime installed, verify resource provider"
+    notes: "Resolved - was caused by webview-004 (attachment order). See webview-004 for the actual fix."
+
+  - id: webview-004
+    title: "WebView plugin crashes DAW - addAndMakeVisible called before attachments"
+    category: webview
+    severity: critical
+    symptoms:
+      - "Plugin crashes entire DAW when loaded"
+      - "Standalone crashes immediately on launch"
+      - "No error message, instant crash"
+      - "Build succeeds perfectly"
+      - "WebView2 runtime is installed"
+    error_patterns:
+      - "DAW crash on plugin load"
+      - "Instant crash with no error"
+      - "Access violation in parameter access"
+    root_cause: "addAndMakeVisible(webView) called BEFORE parameter attachments created. WebView initializes and tries to access attachments that don't exist yet → null pointer crash"
+    resolution_status: solved
+    resolution_file: resolutions/webview-attachment-order-crash.md
+    frequency: 1
+    last_occurred: 2026-01-24
+    attempts_before_resolution: 3
+    prevention: "ALWAYS create ALL parameter attachments BEFORE calling addAndMakeVisible(webView)"
+    critical_fix: "Order must be: 1. Relays 2. WebView 3. Attachments 4. addAndMakeVisible 5. goToURL 6. setSize"
+    notes: "This is the #1 most critical WebView bug. Following ExamplePlugin pattern prevents this entirely."
+
+  - id: linux-001
+    title: "Linux WebView plugin - gtk/gtk.h not found"
+    category: build
+    severity: critical
+    symptoms:
+      - "fatal error: gtk/gtk.h: No such file or directory"
+      - "Compiler can't find GTK headers despite libwebkit2gtk installed"
+      - "JUCE_WEB_BROWSER=1 is defined but GTK includes missing"
+    error_patterns:
+      - "gtk/gtk.h: No such file"
+      - "fatal error: gtk"
+      - "webkit2gtk installed but headers not found"
+    root_cause: "JUCE has TWO separate WebView flags: NEEDS_WEBVIEW2 (Windows) and NEEDS_WEB_BROWSER (Linux). Plugin only sets NEEDS_WEBVIEW2=FALSE on Linux, never sets NEEDS_WEB_BROWSER=TRUE. Without it, JUCE doesn't link webkit2gtk/GTK pkgconfig target, so include paths never get added."
+    resolution_status: solved
+    resolution_file: ../../docs/build-system.md
+    frequency: 1
+    last_occurred: 2026-02-05
+    attempts_before_resolution: 2
+    prevention: "ALWAYS set NEEDS_WEB_BROWSER TRUE in Linux section AND pass it to juce_add_plugin()"
+    critical_fix: "In plugin CMakeLists.txt: elseif(UNIX) set(NEEDS_WEB_BROWSER TRUE) ... juce_add_plugin(... NEEDS_WEB_BROWSER ${NEEDS_WEB_BROWSER})"
+
+  - id: linux-002
+    title: "Linux LV2 build - cannot open display (headless CI)"
+    category: build
+    severity: high
+    symptoms:
+      - "Gtk-WARNING: cannot open display:"
+      - "Build fails after successful link of LV2 .so"
+      - "juce_linux_subprocess error 141"
+      - "Only happens on headless CI, not local build with X11"
+    error_patterns:
+      - "cannot open display"
+      - "juce_linux_subprocess"
+      - "Gtk-WARNING"
+      - "Error 141"
+    root_cause: "JUCE LV2 manifest generator runs POST-LINK to load the plugin and extract parameter metadata for .ttl files. WebView plugins init GTK, which requires X11 display. GitHub Actions runners are headless."
+    resolution_status: solved
+    resolution_file: ../../docs/troubleshooting-guide.md
+    frequency: 1
+    last_occurred: 2026-02-05
+    attempts_before_resolution: 1
+    prevention: "Always use xvfb-run for LV2 and Standalone builds on headless Linux CI"
+    critical_fix: "Install xvfb, wrap build: xvfb-run cmake --build build --target Plugin_LV2"
+
+  - id: webview-010
+    title: "WebView black screen - resource provider callback not invoked"
+    category: webview
+    severity: critical
+    symptoms:
+      - "Black screen in plugin window"
+      - "WebView creates successfully but no UI"
+      - "getResource() callback never called"
+      - "URL loads (https://juce.backend/) but no resource requests"
+      - "Debug log shows zero resource requests"
+    error_patterns:
+      - "black screen"
+      - "resource provider not called"
+      - "WebBrowserComponent created but no resources"
+    root_cause: "TWO timing violations: (1) addAndMakeVisible() called BEFORE attachments created, causing WebView to initialize with bad state; (2) setSize() called BEFORE WebView created, preventing proper initialization"
+    resolution_status: solved
+    resolution_file: resolutions/webview-resource-provider-not-called.md
+    frequency: 1
+    last_occurred: 2026-02-10
+    attempts_before_resolution: 4
+    prevention: "MANDATORY ORDER: (1) Create attachments (2) Create WebView (3) addAndMakeVisible (4) goToURL (5) setSize LAST"
+    critical_fix: "Move addAndMakeVisible() to AFTER all attachments created, AND move setSize() to END of constructor (after goToURL)"
+    notes: "Affects ExamplePlugin. Both CloudWash and ExamplePlugin patterns work if order is correct. Resource provider callback silently fails if WebView initialized in bad state."
+
+  - id: macos-001
+    title: "macOS universal binary - libPluginName_SharedCode.a not found"
+    category: build
+    severity: high
+    symptoms:
+      - "clang++: error: no such file or directory: libPluginName_SharedCode.a"
+      - "warning: None of the architectures in ARCHS (x86_64;arm64) are valid"
+      - "Intermediate static library missing during link"
+    error_patterns:
+      - "SharedCode.a not found"
+      - "architectures in ARCHS"
+      - "VALID_ARCHS"
+    root_cause: "Per-target XCODE_ATTRIBUTE_ARCHS in plugin CMakeLists.txt conflicts with workflow's global CMAKE_OSX_ARCHITECTURES. Xcode misinterprets format (parens in warning), causing intermediate libs to not build or build to wrong location."
+    resolution_status: solved
+    resolution_file: ../../docs/github-actions.md
+    frequency: 1
+    last_occurred: 2026-02-05
+    attempts_before_resolution: 1
+    prevention: "NEVER set XCODE_ATTRIBUTE_ARCHS on individual targets. Use CMAKE_OSX_ARCHITECTURES at configure time only."
+    critical_fix: "Remove set_target_properties(Plugin PROPERTIES XCODE_ATTRIBUTE_ARCHS ...) from plugin CMakeLists.txt"
+
+  - id: webview-005
+    title: "WebView native function bridge - wrong API (invokeNativeFunction)"
+    category: webview
+    severity: critical
+    symptoms:
+      - "UI buttons visually respond but have no effect"
+      - "No C++ native function handler logs appear"
+      - "JS-to-C++ bridge silently fails with no errors"
+      - "triggerNote / setParam / getFactoryPresets never reach C++"
+    error_patterns:
+      - "invokeNativeFunction"
+      - "native function not called"
+      - "gate never true"
+      - "no audio from trigger"
+    root_cause: "JavaScript used non-existent window.__JUCE__.backend.invokeNativeFunction() API. Correct API is window.Juce.getNativeFunction('name') which uses emitEvent('__juce__invoke')"
+    resolution_status: solved
+    resolution_file: resolutions/webview-005-juce-native-function-api.md
+    frequency: 1
+    last_occurred: 2026-02-12
+    attempts_before_resolution: 2
+    prevention: "ALWAYS use window.Juce.getNativeFunction('name'), NEVER use invokeNativeFunction. Check _tools/JUCE/modules/juce_gui_extra/native/javascript/index.js for correct API."
+    critical_fix: "Replace all invokeNativeFunction calls with getNativeFunction pattern"
+
+  - id: dsp-001
+    title: "Silent effects chain - JUCE DSP initialization bugs (Gain/Filter/SmoothedValue)"
+    category: dsp
+    severity: critical
+    symptoms:
+      - "Plugin generates signal internally but output is silent"
+      - "PRE-FX peak ~1.0 but POST-FX peak = 0.0"
+      - "Effects chain kills signal"
+      - "Visualizer shows nothing despite trigger working"
+    error_patterns:
+      - "post-fx peak 0"
+      - "silent output"
+      - "effects chain silence"
+      - "gain zero after prepare"
+    root_cause: "Three bugs: (1) ProcessorDuplicator has null coefficients after prepare() - outputs silence; (2) juce::dsp::Gain defaults to 0.0 after prepare(); (3) SmoothedValue stuck at 0.0 because getCurrentValue() doesn't advance ramp"
+    resolution_status: solved
+    resolution_file: resolutions/dsp-001-silent-effects-chain.md
+    frequency: 1
+    last_occurred: 2026-02-12
+    attempts_before_resolution: 4
+    prevention: "After prepare(): set filter coefficients, set gain to 1.0, init SmoothedValues with setCurrentAndTargetValue()"
+    critical_fix: "*filter.state = *Coefficients::makeLowPass(); gain.setGainLinear(1.0f); smoothed.setCurrentAndTargetValue(value)"
+
+  - id: webview-011
+    title: "WebView UI loads but looks messy / unstyled - external CSS + BinaryData path"
+    category: webview
+    severity: high
+    symptoms:
+      - "UI looks messy / overlapping / default HTML buttons"
+      - "Design preview looks correct in browser, plugin does not"
+      - "Broken logo icon, Windows scrollbar, preview hint footer"
+      - "HTML and JS load, custom chrome missing"
+      - "VST3 updated but Standalone still unstyled"
+    error_patterns:
+      - "unstyled WebView"
+      - "messy UI"
+      - "link rel stylesheet"
+      - "css/tokens.css"
+      - "default buttons overlapping"
+      - "preview-stage"
+    root_cause: "Design HTML used <link rel=stylesheet>. WebView2 often does not apply linked CSS. getResource() collapsed relative CSS URLs to index.html (fromFirstOccurrenceOf miss). juce_add_binary_data stores basenames only. Running Standalone can lock a stale EXE while VST3 rebuilds."
+    resolution_status: solved
+    resolution_file: resolutions/webview-011-unstyled-external-css.md
+    frequency: 1
+    last_occurred: 2026-08-13
+    attempts_before_resolution: 2
+    prevention: "Inline ALL CSS and JS in WebUI/index.html (CloudWash). Map BinaryData by path AND basename; never default unknown URLs to index.html. Strip Design preview chrome in plugin. Kill Standalone before rebuild and verify BOTH binaries."
+    critical_fix: "Inline tokens.css + app-style.css into index.html; explicit getResource map; plugin-host class; rebuild Standalone after stopping the old process"
+    notes: "ExamplePlugin /impl 2026-08-13. ExamplePlugin /impl 2026-08-22: same getResource collapse hid logo.webp (macOS NSURL path /file.webp). Distinct from webview-007/010 (black screen) and webview-008 (knob dots / ES6 JS)."
+
+  - id: webview-008
+    title: "WebView JavaScript not running - ES6 modules / external scripts / eval injection"
+    category: webview
+    severity: critical
+    symptoms:
+      - "Plugin loads HTML chrome but knobs do not move"
+      - "Canvas / visualization is empty"
+      - "No JavaScript errors in the DAW"
+      - "Browser test works, plugin UI is dead"
+      - "evaluateJavascript injection leaves __pluginBooted false"
+    error_patterns:
+      - "type=\"module\""
+      - "script src"
+      - "import "
+      - "knobs don't move"
+      - "canvas not visible"
+      - "JavaScript not running"
+    root_cause: "ES6 modules and external script src fail silently in JUCE WebView. evaluateJavascript injection of a whole app.js also fails if the script uses private class fields or waits only for DOMContentLoaded (already fired)."
+    resolution_status: solved
+    resolution_file: resolutions/webview-es6-modules-fail.md
+    frequency: 2
+    last_occurred: 2026-08-22
+    attempts_before_resolution: 2
+    prevention: "Inline ALL JavaScript in index.html. Never type=module or import/export. Do not replace inlining with evaluateJavascript of app.js. If injecting as fallback, strip #private fields, boot on readyState, and log EvaluationCallback errors."
+    critical_fix: "One <script> block in Source/ui/public/index.html with window.Juce + UI; optional C++ fallback only if window.__pluginBooted is false"
+    notes: "CloudWash 2026-01-26 (canonical). ExamplePlugin 2026-08-22 (macOS WKWebView injection pitfall)."
+
+  - id: ci-001
+    title: "CI - JUCE submodule missing extras/Build/CMake"
+    category: build
+    severity: critical
+    symptoms:
+      - "CMake Error: include could not find requested file: extras/Build/CMake/JUCEModuleSupport.cmake"
+      - "Unknown CMake command juce_add_modules"
+      - "JUCE directory exists but CMake support missing"
+      - "Works locally but fails on GitHub Actions"
+    error_patterns:
+      - "JUCEModuleSupport.cmake"
+      - "juce_add_modules"
+      - "extras/Build"
+    root_cause: "_tools/JUCE was committed as 4600+ regular files instead of git submodule reference. GitHub Actions submodules: recursive had no gitlink to follow, checked out incomplete snapshot missing extras/Build/."
+    resolution_status: solved
+    resolution_file: ../../docs/github-actions.md
+    frequency: 1
+    last_occurred: 2026-02-05
+    attempts_before_resolution: 1
+    prevention: "ALWAYS use git submodule add, NEVER commit framework directories as regular files"
+    critical_fix: "git rm -r --cached _tools/JUCE && rm -rf _tools/JUCE && git submodule add https://github.com/juce-framework/JUCE _tools/JUCE"
+
+  - id: build-005
+    title: "FetchContent fails - stale _deps after build_dir relocation"
+    category: build
+    severity: high
+    symptoms:
+      - "CMake Error: CMake step for bgfx failed: 1"
+      - "FetchContent populate fails for bgfx/freetype during Visage configure"
+      - "git clone retries 3 times then fails inside populate subbuild"
+    error_patterns:
+      - "CMake step for bgfx failed"
+      - "Failed to clone repository"
+      - "Had to git clone more than once"
+    root_cause: "apc.config.json paths.build_dir moved the build tree (repo/build -> ../apc_builds). The copied _deps/*-subbuild scripts still hardcode the OLD build dir inside their generated gitclone.cmake. If the old dir no longer exists, git.exe cannot start (missing WORKING_DIRECTORY) and the clone fails 3x."
+    resolution_status: solved
+    resolution_file: resolutions/build-005-stale-deps-fetchcontent.md
+    frequency: 1
+    last_occurred: 2026-09-19
+    attempts_before_resolution: 1
+    prevention: "After changing paths.build_dir in apc.config.json, delete the new build dir's _deps folder once so FetchContent regenerates subbuild scripts with correct absolute paths."
+    critical_fix: "Remove-Item -Recurse -Force <build_dir>/_deps, then rerun configure. Do NOT copy/move _deps between build dirs."
+
+  - id: visage-001
+    title: "Visage UI clipped to top-left with dead margins on large windows"
+    category: ui
+    severity: critical
+    symptoms:
+      - "Visage plugin UI renders into top-left sub-rect; black void right/bottom"
+      - "Gets worse the larger the editor window is dragged"
+      - "Content edge tracks canvas framebuffer size, paint() stretch has no effect"
+    error_patterns:
+      - "content only fills fraction of window"
+      - "black margins after resize"
+    root_cause: "visage::Canvas::beginRegion() applied state_.scale (dpi) to region bounds that are already device pixels -> clamp shrank to dpi^2 of the region whenever APC's windowless rasterQuality_ < 1. Latent upstream bug; harmless at dpi>=1."
+    resolution_status: solved
+    resolution_file: resolutions/visage-subnative-raster-clip.md
+    frequency: 1
+    last_occurred: 2026-09-29
+    attempts_before_resolution: 1
+    prevention: "Region/canvas dimensions in visage_graphics are device pixels. Never multiply them by state_.scale/dpi_scale_. Companion fix already in frame.h setDpiScale (rebakes native_bounds_)."
+  - id: visage-002
+    title: "Visage UI stays blurry after window resize"
+    category: ui
+    severity: high
+    symptoms:
+      - "UI soft/unsharp after enlarging the editor window"
+      - "Blur persists after the drag ends, never re-sharpens"
+      - "Worse on large windows"
+    error_patterns:
+      - "blurry after resize"
+      - "low-res upscaled UI"
+    root_cause: "Adaptive rasterQuality_ in VisageJuceHost.h ratcheted down during resize but only recovered when frameEma<7ms; reduced-raster frames landed in the 7-14ms deadband so the low raster (and its upscale blur) was pinned indefinitely. Second failure mode: a single >16ms EMA window stepped quality down ~1s after the settle snap (post-snap native-frame spike), oscillating sharp/soft."
+    resolution_status: solved
+    resolution_file: resolutions/visage-adaptive-raster-stuck-blurry.md
+    frequency: 2
+    last_occurred: 2026-09-30
+    attempts_before_resolution: 2
+    prevention: "Snap rasterQuality back to 1.0 ~0.5s after resize settles and reset the overload streak; down-step only on sustained >24ms EMA across ~3 check windows (instant bail >45ms), floor 0.70. MYRIAPLEX_RASTERLOG env var logs effective raster scale."
+
+  - id: clap-001
+    title: "clap-validator state-reproducibility tests fail on every JUCE plugin (upstream)"
+    category: build
+    severity: medium
+    symptoms:
+      - "clap-validator: FAILED state-reproducibility-basic, -binary, -buffered"
+      - "'these parameter values changed without a rescan request' after state load"
+      - "44 tests run: ~28 passed, exactly 3 failed, rest skipped/warnings"
+    error_patterns:
+      - "state-reproducibility"
+      - "without a rescan request"
+    root_cause: "Upstream bug in _tools/clap-juce-extensions (still unfixed at pinned commit 7adee3a, 2026-10-06): ClapJuceWrapper::stateLoad calls AudioProcessor::setStateInformation and returns true WITHOUT calling clap_host_params.rescan(CLAP_PARAM_RESCAN_VALUES). Hosts that cache parameter values then see stale values. Affects every APVTS-based JUCE plugin; not an APC or plugin bug. Upstream fix pending: free-audio/clap-juce-extensions PR #189."
+    resolution_status: workaround
+    resolution_file: resolutions/clap-001-state-reproducibility-rescan.md
+    frequency: 1
+    last_occurred: 2026-10-10
+    prevention: "Non-fatal by design: build-and-install warns and continues. Track upstream PR #189; bump the _tools/clap-juce-extensions pin once it merges."
+    critical_fix: "No local fix needed - plugin works correctly in DAWs (hosts re-read params on load). If a clean validator run is required, apply the 3-line paramsRescan patch from upstream PR #189 inside the submodule, or filter: clap-validator validate --test-filter 'state-reproducibility.*' --invert-filter plugin.clap"

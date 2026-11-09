@@ -9,13 +9,28 @@
 # Establish the root so we can find templates reliably
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 
+# Expose Get-ApcPaths / Get-ApcPluginPath so workflows can resolve custom plugins_dir
+$apcPathsLib = Join-Path $PSScriptRoot "lib\Get-ApcPaths.ps1"
+if (Test-Path $apcPathsLib) {
+    . $apcPathsLib
+}
+
 $Script:StateSchema = @{
     required = @(
         'plugin_name', 'version', 'current_phase', 'ui_framework', 
         'complexity_score', 'created_at', 'last_modified', 'phase_history', 
         'validation', 'framework_selection', 'error_recovery'
     )
-    phases = @('ideation', 'plan', 'design', 'code', 'ship', 'complete')
+    # Ordered lifecycle. Each phase has an in-progress label and a *_complete label
+    # (the *_complete form is what agent.md, the phase gates, and status.json use).
+    phases = @(
+        'ideation', 'ideation_complete',
+        'plan', 'plan_complete',
+        'design', 'design_complete',
+        'code', 'code_complete',
+        'ship', 'ship_complete',
+        'complete'
+    )
     frameworks = @('visage', 'webview', 'pending')
     validation_fields = @(
         'creative_brief_exists', 'parameter_spec_exists', 'architecture_defined',
@@ -54,7 +69,7 @@ function New-PluginState {
         return $null
     }
     
-    $template = Get-Content $templatePath -Raw | ConvertFrom-Json
+    $template = Get-Content $templatePath -Raw -Encoding UTF8 | ConvertFrom-Json
     $template.plugin_name = $PluginName
     $template.created_at = (Get-Date).ToString("o")
     $template.last_modified = (Get-Date).ToString("o")
@@ -84,7 +99,7 @@ function Update-PluginState {
         return $false
     }
     
-    $state = Get-Content $statusPath -Raw | ConvertFrom-Json
+    $state = Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
     
     # Apply updates (Fixed for nested objects)
     foreach ($key in $Updates.Keys) {
@@ -179,7 +194,7 @@ function Test-PluginState {
         return $false
     }
     
-    $state = Get-Content $statusPath -Raw | ConvertFrom-Json
+    $state = Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
     
     # Check schema validation
     if (-not (Test-StateSchema -State $state)) {
@@ -268,7 +283,7 @@ function Backup-PluginState {
     Write-Host "State backed up to $backupFile" -ForegroundColor Yellow
     
     # Update error recovery info
-    $state = Get-Content $statusPath -Raw | ConvertFrom-Json
+    $state = Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $state.error_recovery.last_backup = $backupFile
     $state.error_recovery.rollback_available = $true
     $state | ConvertTo-Json -Depth 10 | Set-Content $statusPath -Encoding UTF8
@@ -311,7 +326,7 @@ function Restore-PluginState {
     Copy-Item $source $statusPath -Force
 
     # Update error recovery info
-    $state = Get-Content $statusPath -Raw | ConvertFrom-Json
+    $state = Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $state.error_recovery.rollback_available = $false
     # Fix array append
     if (-not $state.error_recovery.error_log) { $state.error_recovery.error_log = @() }
@@ -334,7 +349,7 @@ function Get-PluginState {
     $statusPath = Join-Path $PluginPath "status.json"
     if (-not (Test-Path $statusPath)) { return $null }
     
-    return Get-Content $statusPath -Raw | ConvertFrom-Json
+    return Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
 }
 
 function Add-StateError {
@@ -349,7 +364,7 @@ function Add-StateError {
     $statusPath = Join-Path $PluginPath "status.json"
     if (-not (Test-Path $statusPath)) { return }
     
-    $state = Get-Content $statusPath -Raw | ConvertFrom-Json
+    $state = Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
     
     if (-not $state.error_recovery.error_log) { $state.error_recovery.error_log = @() }
     if ($state.error_recovery.error_log -isnot [Array]) { $state.error_recovery.error_log = @($state.error_recovery.error_log) }

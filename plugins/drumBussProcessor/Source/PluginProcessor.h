@@ -8,19 +8,20 @@
 
 #pragma once
 
-#include <juce_audio_processors/juce_audio_processors.h>
-#include <juce_dsp/juce_dsp.h>
-#include <juce_core/juce_core.h>
+%%app_headers%%
 
 //==============================================================================
 /**
 */
-class drumBussProcessorAudioProcessor  : public juce::AudioProcessor
+class %%filter_class_name%%  : public juce::AudioProcessor
+                            #if JucePlugin_Enable_ARA
+                             , public juce::AudioProcessorARAExtension
+                            #endif
 {
 public:
     //==============================================================================
-    drumBussProcessorAudioProcessor();
-    ~drumBussProcessorAudioProcessor() override;
+    %%filter_class_name%%();
+    ~%%filter_class_name%%() override;
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -55,35 +56,7 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // APVTS for Parameter Management
-    juce::AudioProcessorValueTreeState apvts;
-
 private:
-    // Parameter Layout
-    juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-
-    // DSP Components
-    juce::dsp::Gain<float> inputGain;
-    juce::dsp::WaveShaper<float> inputClipper;
-    juce::dsp::Compressor<float> compressor; // VCA (Glue)
-    juce::dsp::Gain<float> makeupGain; // Auto-makeup for VCA
-    juce::dsp::Compressor<float> fetCompressor; // Parallel (Monster)
-    juce::dsp::WaveShaper<float> outputClipper;
-    juce::dsp::Gain<float> outputGain;
-
-    // DSP State
-    double currentSampleRate = 44100.0;
-    
-    // Smoothed Values for Parameters
-    juce::SmoothedValue<float> smoothedInputTrim;
-    juce::SmoothedValue<float> smoothedMixReady;
-    juce::SmoothedValue<float> smoothedOutputTrim;
-
-    // Helper functions
-    float mapMixReadyToThreshold(float mixReadyNorm);
-    float mapMixReadyToMakeup(float mixReadyNorm);
-    float mapMixReadyToParallelMix(float mixReadyNorm);
-
     //==============================================================================
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (drumBussProcessorAudioProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (%%filter_class_name%%)
 };

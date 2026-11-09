@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+# APC Master Builder (macOS)
+# Configures, builds, and installs audio plugins using Xcode generator.
+#
+# Usage: bash scripts/build-and-install.sh <PluginName> [--no-install] [--skip-tests]
+
+set -euo pipefail
+
+# --- PARSE ARGUMENTS ---
+PLUGIN_NAME=""
+NO_INSTALL=false
+SKIP_TESTS=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --no-install) NO_INSTALL=true; shift ;;
+        --skip-tests) SKIP_TESTS=true; shift ;;
+        -*) echo "Unknown option: $1" >&2; exit 1 ;;
+        *) PLUGIN_NAME="$1"; shift ;;
+    esac
+done
+
+if [[ -z "$PLUGIN_NAME" ]]; then
+    echo "Usage: $0 <PluginName> [--no-install] [--skip-tests]" >&2
+    exit 1
+fi
+
+# --- PATH RESOLUTION ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/apc-paths.sh
+. "$SCRIPT_DIR/lib/apc-paths.sh"
+apc_load_paths
+ROOT_PATH="$APC_REPO_ROOT"
+BUILD_DIR="$APC_BUILD_DIR"
+PLUGIN_DIR="$(apc_plugin_path "$PLUGIN_NAME")"
+STATUS_JSON="$PLUGIN_DIR/status.json"
+
+# --- IMPORT MODULES ---
+# shellcheck source=state-management.sh
+. "$SCRIPT_DIR/state-management.sh"
+# shellcheck source=error-detection.sh
+. "$SCRIPT_DIR/error-detection.sh"
+# shellcheck source=clap-validator-integration.sh
+. "$SCRIPT_DIR/clap-validator-integration.sh"
+
+# --- DETECT FRAMEWORK ---
+USE_VISAGE=false
+USE_CLAP=false
+if [[ -f "$STATUS_JSON" ]] && command -v jq &>/dev/null; then
+    fw="$(jq -r '.ui_framework // "pending"' "$STATUS_JSON" 2>/dev/null || echo "pending")"
+    if [[ "$fw" == "visage" ]]; then
+        USE_VISAGE=true
+    fi
+    clap_opt="$(jq -r '.formats.clap // false' "$STATUS_JSON" 2>/dev/null || echo "false")"
+    if [[ "$clap_opt" == "true" ]]; then
+        USE_CLAP=true
+    fi
+fi
+
+echo "--- APC BUILDER: $PLUGIN_NAME ---"
+echo "Plugins: $APC_PLUGINS_DIR"
+echo "Build:   $BUILD_DIR"
+if $USE_VISAGE; then
+    echo "Framework: visage"
+fi
+if $USE_CLAP; then
+    echo "CLAP: opted in (formats.clap)"
+fi
+
+# --- VALIDATE PREREQUISITES ---
+if [[ -f "$STATUS_JSON" ]] && command -v jq &>/dev/null; then
+    current_phase="$(jq -r '.current_phase // ""' "$STATUS_JSON" 2>/dev/null || echo "")"
+    if [[ "$current_phase" != "code" && "$current_phase" != "ship" && "$current_phase" != "complete" ]] && ! $SKIP_TESTS; then
+        echo "WARNING: Plugin implementation not marked as complete. Use --skip-tests to override."
+    fi
+fi
+
+# --- 1. CONFIGURE ---
+echo "Configuring build..."
+VISAGE_FLAG=""
+if $USE_VISAGE; then
+    VISAGE_FLAG="-DAPC_ENABLE_VISAGE:BOOL=ON"
+fi
+
+CONFIG_OUTPUT=""
+CONFIG_OUTPUT=$(cmake -S "$ROOT_PATH" -B "$BUILD_DIR" \
+    -G Xcode \
+    -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 \
+    -DAPC_PLUGINS_DIR="$APC_PLUGINS_DIR" \
+    --fresh \
+    $VISAGE_FLAG 2>&1) || {
+    echo "ERROR: CMake configuration failed" >&2
+    echo "$CONFIG_OUTPUT" >&2
+
+    if command -v jq &>/dev/null; then
+        errors="$(parse_build_errors "$CONFIG_OUTPUT")"
+        error_count="$(echo "$errors" | jq 'length')"
+        if (( error_count > 0 )); then
+            known="$(find_known_issue "$errors" 2>/dev/null || true)"
+            if [[ -n "$known" ]]; then
+                echo "Known issue detected: $(echo "$known" | jq -r '.title')"
+            else
+                new_issue_from_error "$errors" "$CONFIG_OUTPUT" 2>/dev/null || true
+            fi
+        fi
+    fi
+    exit 1
+}
+
+# --- 2. BUILD VST3 ---
+echo "Compiling VST3..."
+VST3_OUTPUT=""
+VST3_OUTPUT=$(cmake --build "$BUILD_DIR" --config Release --target "${PLUGIN_NAME}_VST3" 2>&1) || {
+    echo "ERROR: VST3 build failed" >&2
+    echo "$VST3_OUTPUT" >&2
+
+    if command -v jq &>/dev/null; then
+        errors="$(parse_build_errors "$VST3_OUTPUT")"
+        error_count="$(echo "$errors" | jq 'length')"
+        if (( error_count > 0 )); then
+            known="$(find_known_issue "$errors" 2>/dev/null || true)"
+            if [[ -n "$known" ]]; then
+                echo "Known issue detected: $(echo "$known" | jq -r '.title')"
+            else
+                new_issue_from_error "$errors" "$VST3_OUTPUT" 2>/dev/null || true
+            fi
+        fi
+    fi
+    exit 1
+}
+
+# --- 3. BUILD AU (AudioUnit) ---
+echo "Compiling AudioUnit..."
+AU_OUTPUT=""
+AU_OUTPUT=$(cmake --build "$BUILD_DIR" --config Release --target "${PLUGIN_NAME}_AU" 2>&1) || {
+    echo "WARNING: AudioUnit build failed (non-fatal)" >&2
+    echo "$AU_OUTPUT" >&2
+}
+
+# --- 4. BUILD STANDALONE ---
+echo "Compiling Standalone..."
+STANDALONE_OUTPUT=""
+STANDALONE_OUTPUT=$(cmake --build "$BUILD_DIR" --config Release --target "${PLUGIN_NAME}_Standalone" 2>&1) || {
+    echo "WARNING: Standalone build failed (non-fatal)" >&2
+    echo "$STANDALONE_OUTPUT" >&2
+}
+
+# --- 4b. BUILD CLAP (opt-in, non-fatal) ---
+if $USE_CLAP; then
+    echo "Compiling CLAP..."
+    CLAP_OUTPUT=""
+    CLAP_OUTPUT=$(cmake --build "$BUILD_DIR" --config Release --target "${PLUGIN_NAME}_CLAP" 2>&1) || {
+        echo "WARNING: CLAP build failed (non-fatal) - VST3/AU are unaffected" >&2
+        echo "$CLAP_OUTPUT" >&2
+    }
+
+    # clap-validator (pluginval can't read CLAP); non-fatal, skipped if absent
+    if ! $SKIP_TESTS; then
+        CLAP_BUILT="$(find "$BUILD_DIR" -name "${PLUGIN_NAME}.clap" 2>/dev/null | head -1 || true)"
+        if [[ -n "$CLAP_BUILT" ]]; then
+            test_with_clap_validator "$CLAP_BUILT" "$PLUGIN_NAME" || {
+                rc=$?
+                if [[ $rc -ne 2 ]]; then
+                    echo "WARNING: clap-validator tests failed - proceeding anyway" >&2
+                fi
+            }
+        fi
+    fi
+fi
+
+# --- 5. INSTALL ---
+if ! $NO_INSTALL; then
+    echo "Installing plugins..."
+
+    # Find and install VST3
+    VST3_BUNDLE="$(find "$BUILD_DIR" -name "${PLUGIN_NAME}.vst3" -type d | head -1)"
+    if [[ -n "$VST3_BUNDLE" ]]; then
+        VST3_DEST="$HOME/Library/Audio/Plug-Ins/VST3/${PLUGIN_NAME}.vst3"
+        if [[ -d "$VST3_DEST" ]]; then
+            rm -rf "$VST3_DEST"
+        fi
+        cp -R "$VST3_BUNDLE" "$VST3_DEST"
+        echo "INSTALLED VST3 to: $VST3_DEST"
+    else
+        echo "WARNING: VST3 bundle not found in build output"
+    fi
+
+    # Find and install AU
+    AU_BUNDLE="$(find "$BUILD_DIR" -name "${PLUGIN_NAME}.component" -type d 2>/dev/null | head -1 || true)"
+    if [[ -n "$AU_BUNDLE" ]]; then
+        AU_DEST="$HOME/Library/Audio/Plug-Ins/Components/${PLUGIN_NAME}.component"
+        if [[ -d "$AU_DEST" ]]; then
+            rm -rf "$AU_DEST"
+        fi
+        cp -R "$AU_BUNDLE" "$AU_DEST"
+        echo "INSTALLED AU to: $AU_DEST"
+    fi
+
+    # Install CLAP (.clap is a bundle dir on macOS, single file on Linux)
+    if $USE_CLAP; then
+        CLAP_ART=""
+        CLAP_ART="$(find "$BUILD_DIR" -name "${PLUGIN_NAME}.clap" 2>/dev/null | head -1 || true)"
+        if [[ -n "$CLAP_ART" ]]; then
+            CLAP_DEST_DIR="${APC_CLAP_INSTALL_DIR:-$HOME/Library/Audio/Plug-Ins/CLAP}"
+            mkdir -p "$CLAP_DEST_DIR"
+            CLAP_DEST="$CLAP_DEST_DIR/${PLUGIN_NAME}.clap"
+            if [[ -e "$CLAP_DEST" ]]; then
+                rm -rf "$CLAP_DEST"
+            fi
+            cp -R "$CLAP_ART" "$CLAP_DEST"
+            echo "INSTALLED CLAP to: $CLAP_DEST"
+        else
+            echo "WARNING: CLAP binary not found in build output"
+        fi
+    fi
+
+    # Report Standalone location
+    STANDALONE_APP="$(find "$BUILD_DIR" -name "${PLUGIN_NAME}.app" -type d 2>/dev/null | head -1 || true)"
+    if [[ -n "$STANDALONE_APP" ]]; then
+        echo "STANDALONE built at: $STANDALONE_APP"
+        echo "Tip: Copy to /Applications/ if desired."
+    fi
+fi
+
+# --- 6. UPDATE BUILD STATUS ---
+if command -v jq &>/dev/null && [[ -f "$STATUS_JSON" ]]; then
+    timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    update_plugin_state "$PLUGIN_DIR" \
+        "validation.build_completed=true" \
+        "validation.build_timestamp=$timestamp" \
+        2>/dev/null || true
+fi
+
+echo "Build process complete!"

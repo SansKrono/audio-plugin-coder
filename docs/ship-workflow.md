@@ -19,11 +19,14 @@ The Ship phase creates professional, cross-platform plugin installers ready for 
 
 ### Supported Platforms
 
-| Platform | VST3 | AU | Standalone | LV2 | Local Build | GitHub Actions |
-|----------|------|-----|------------|-----|-------------|----------------|
-| Windows  | ✓    | -   | ✓          | -   | ✓ (native)  | ✓              |
-| macOS    | ✓    | ✓   | ✓          | -   | ✗           | ✓              |
-| Linux    | ✓    | -   | ✓          | ✓   | ✗           | ✓              |
+| Platform | VST3 | CLAP* | AU | Standalone | LV2 | Local Build | GitHub Actions |
+|----------|------|-------|-----|------------|-----|-------------|----------------|
+| Windows  | ✓    | ✓     | -   | ✓          | -   | ✓ (native)  | ✓              |
+| macOS    | ✓    | ✓     | ✓   | ✓          | -   | ✗           | ✓              |
+| Linux    | ✓    | ✓     | -   | ✓          | ✓   | ✗           | ✓              |
+
+\* CLAP only for plugins that opted in during `/apc-plan` (`status.json` ->
+`formats.clap`). Installers pick up the `.clap` artifact automatically.
 
 ## Prerequisites
 
@@ -38,11 +41,12 @@ Before running Ship:
 ### Command
 
 ```powershell
-# Using the skill trigger
-/ship CloudWash
+# Via AI agent (preferred)
+/apc-ship CloudWash
 
-# Or run directly
-powershell -ExecutionPolicy Bypass -File .\scripts\ship-local.ps1 -PluginName CloudWash
+# Or run the build + installer scripts directly
+powershell -ExecutionPolicy Bypass -File .\scripts\build-and-install.ps1 -PluginName CloudWash
+powershell -ExecutionPolicy Bypass -File .\scripts\installer\create-windows-installer.ps1 -PluginName CloudWash -Version "1.0.0"
 ```
 
 ## Step-by-Step Process
@@ -68,9 +72,9 @@ Local Build Status: Found
 Select platforms to include:
 [1] Current Platform - USE LOCAL BUILD
 [2] Current Platform - BUILD WITH GITHUB ACTIONS  
-[3] Windows (VST3, Standalone) - GITHUB ACTIONS
-[4] macOS (VST3, AU, Standalone) - GITHUB ACTIONS
-[5] Linux (VST3, LV2, Standalone) - GITHUB ACTIONS
+[3] Windows (VST3, CLAP*, Standalone) - GITHUB ACTIONS
+[4] macOS (VST3, AU, CLAP*, Standalone) - GITHUB ACTIONS
+[5] Linux (VST3, LV2, CLAP*, Standalone) - GITHUB ACTIONS
 [6] ALL PLATFORMS - Use local for current, GitHub for others
 
 Enter numbers (comma-separated) or 'all':
@@ -124,7 +128,7 @@ If you selected to use local build:
 6. Supports custom installation path
 
 **Output:**
-- `dist/{PluginName}-{version}-Windows-Setup.exe`
+- `release/{PluginName}-{version}-Windows-Setup.exe`
 
 ### Step 4: GitHub Actions Trigger
 
@@ -145,12 +149,14 @@ After GitHub Actions completes:
 
 ```powershell
 # Using GitHub CLI
-gh run download --dir dist/github-artifacts --pattern "*-$PluginName"
+gh run download --dir release/github-artifacts --pattern "*-$PluginName"
 ```
 
 Or manually from GitHub Actions page.
 
 ### Step 6: Create Installers
+
+Per-platform installer how-to lives in [Installer Creation](installer-creation.md) — summary:
 
 **Windows (already done in Step 3):**
 - Professional `.exe` installer
@@ -174,7 +180,7 @@ Or manually from GitHub Actions page.
 Creates unified distribution package:
 
 ```
-dist/{PluginName}-v{version}/
+release/{PluginName}-v{version}/
 ├── {PluginName}-{version}-Windows-Setup.exe   (Windows installer)
 ├── {PluginName}-{version}-macOS.zip           (macOS bundles)
 ├── {PluginName}-{version}-Linux.zip           (Linux binaries)
@@ -186,7 +192,7 @@ dist/{PluginName}-v{version}/
 
 **Final ZIP:**
 ```
-dist/{PluginName}-v{version}.zip
+release/{PluginName}-v{version}.zip
 ```
 
 ## Installer Features
@@ -288,19 +294,14 @@ After shipping, the plugin state is updated:
 powershell -ExecutionPolicy Bypass -File .\scripts\build-and-install.ps1 -PluginName CloudWash
 
 # Then ship
-/ship CloudWash
+/apc-ship CloudWash
 ```
 
 ### "Inno Setup not found"
 
 **Cause:** Inno Setup not installed
 
-**Solution:**
-1. Download from https://jrsoftware.org/isdl.php
-2. Install with default settings
-3. Restart terminal
-
-Or use ZIP distribution instead of installer.
+**Solution:** See [Installer Creation](installer-creation.md#windows-installer) — install from https://jrsoftware.org/isdl.php with default settings, restart the terminal, or use ZIP distribution instead.
 
 ### "GitHub Actions workflow not found"
 
@@ -376,7 +377,7 @@ Always update:
 .\scripts\build-and-install.ps1 -PluginName CloudWash
 
 # 2. Start ship workflow
-/ship CloudWash
+/apc-ship CloudWash
 
 # 3. Select platforms: 1,4,5 (Use local Windows, GitHub for macOS/Linux)
 
@@ -385,7 +386,7 @@ Always update:
 #    - Monitor build progress
 
 # 5. Download artifacts
-gh run download --dir dist/github-artifacts
+gh run download --dir release/github-artifacts
 
 # 6. Create final distribution
 #    - Windows installer created locally
@@ -396,7 +397,7 @@ gh run download --dir dist/github-artifacts
 
 ```powershell
 # Already have Windows and Linux, just need macOS
-/ship CloudWash
+/apc-ship CloudWash
 
 # Select: 4 (macOS only)
 
@@ -408,7 +409,7 @@ gh run download --dir dist/github-artifacts
 
 ```powershell
 # Want consistent builds across all platforms
-/ship CloudWash
+/apc-ship CloudWash
 
 # Select: 3,4,5 (Build all on GitHub)
 
@@ -427,5 +428,5 @@ gh run download --dir dist/github-artifacts
 
 - [GitHub Actions CI/CD](github-actions.md) - Detailed workflow documentation
 - [Main README](README.md) - Project overview
-- `.agent/skills/skill_packaging/SKILL.md` - Implementation details
+- `.agents/skills/ship/SKILL.md` - Implementation details
 

@@ -1,0 +1,71 @@
+# Audio Plugin Coder — Agent Guidance
+
+## Scope
+
+These instructions apply to the entire repository and are written for any coding agent that reads the `AGENTS.md` standard (Codex, Cursor, Pi, Antigravity, OpenCode, and others). Canonical APC knowledge lives under `.agents/` (`skills/`, `workflows/`, `rules/`, `guides/`, `troubleshooting/`). Host-specific folders (`.claude/` for Claude Code, `.kilocode/` for Kilo, `.agent/` legacy, `.opencode/command/` for OpenCode, `.devin/skills/` for Devin, `.pi/` if present) contain pointers to those canonical files; treat them as equivalent.
+
+## First run
+
+- New checkouts should start with **`/apc-setup`** (skill action `setup`) before creating plugins.
+- Setup writes machine-local `apc.config.json` (see `apc.config.example.json`). Paths, UI defaults, and per-phase model preferences live there.
+- Resolve plugin/build/release directories via `scripts/lib/Get-ApcPaths.ps1` or `scripts/lib/apc-paths.sh` — do not assume `./plugins` if config overrides exist.
+- `/apc-ship` writes installers and zips to `paths.release_dir` (default `release/`). Do not use `dist/` as the ship output.
+
+## Attribution
+
+- Do **not** add `Co-authored-by` trailers for AI agents.
+- Do **not** list AI agents as contributors, authors, or acknowledgments.
+- Do **not** post GitHub comments, reviews, or issues in the name of an AI agent.
+- If a host injects an AI co-author trailer into a commit message, strip it before the commit is pushed.
+
+## APC Workflow
+
+- Use the `audio-plugin-coder` skill for APC lifecycle work.
+- **Primary slash commands** are prefixed: `/apc-setup`, `/apc-dream`, `/apc-plan`, `/apc-design`, `/apc-impl`, `/apc-test`, `/apc-debug`, `/apc-ship`, `/apc-status`, `/apc-resume`, `/apc-new`, `/apc-orchestrate`.
+- Short forms (`/dream`, `/design`, `/impl`, …) remain as **deprecated aliases** that redirect to `/apc-*`.
+- Claude Code and Kilo use the bare `/apc-*` forms. Codex repo sessions use the `audio-plugin-coder` skill action; plugin surfaces may expose namespaced command adapters, but they do not create bare `/apc-*` aliases.
+- Devin exposes repo skills as slash commands via `.devin/skills/apc-*/SKILL.md` pointers to `.agents/workflows/apc-*.md`. `/apc-setup` is namespaced (`/devin:apc-setup`, `/agents:apc-setup`, `/claude:apc-setup`) because same-named skills exist in multiple imported dirs.
+- If the agent host does not expose slash commands, use the `audio-plugin-coder` skill or an equivalent natural-language request.
+
+## Codex
+
+- Invoke APC as `$audio-plugin-coder:audio-plugin-coder <action> <PluginName>` or use an equivalent natural-language request.
+- Actions include `setup`, `dream`, `plan`, `design`, `impl`, `test`, `debug`, `status`, `resume`, `ship`, `new`, `orchestrate` (also accept `apc-dream` style names by stripping the `apc-` prefix).
+- Never use Codex `/plan` or `/status` as APC workflow commands; those names are reserved by Codex built-ins. Use the skill actions above.
+- See `docs/codex-compatibility.md` for setup and the full command mapping.
+- **Optional cost-aware CLI routing** (ChatGPT-authenticated `codex exec`, Luna→Terra→Sol→Astra): see `docs/codex-orchestration.md` and `scripts/codex/apc-codex-run.ps1` / `.sh`. Do not force this path on Claude, Cursor, or Kilo sessions.
+
+## Required Context
+
+- Before changing a plugin under the configured plugins directory, read its `status.json`.
+- Resolve the plugin directory with `Get-ApcPluginPath` / `apc_plugin_path` (from `scripts/lib/Get-ApcPaths.ps1` or `scripts/lib/apc-paths.sh`). Do **not** hardcode `plugins/<Name>` — honor `paths.plugins_dir` in `apc.config.json`.
+- Read the relevant workflow and skill under `.agents/`; host folders (`.claude/`, `.agent/`, `.kilocode/`) contain pointers to the same canonical files.
+- Also read `.agents/rules/juce-build-protocols.md` and `.agents/rules/file-naming-conventions.md` before implementation, build, or packaging work; read `.agents/rules/ui-layout-system.md` before any WebView UI layout, scaling, or design-contract work.
+- Preserve the selected `ui_framework`: Visage work must not introduce WebView files, and WebView work must not introduce Visage controls.
+- Announce the preferred model from `apc.config.json` → `models.phases.<phase>` at phase start (see `docs/model-routing.md`).
+
+## Platform Rules
+
+- Detect the host OS before choosing commands.
+- Use PowerShell and `.ps1` scripts on Windows.
+- Use Bash/Zsh and `.sh` scripts on macOS or Linux.
+- Do not copy a PowerShell example from an APC workflow verbatim on macOS or Linux; use the equivalent shell function or script.
+
+## Phase Gates
+
+- Complete only the requested APC phase.
+- Validate the prior phase before writing files.
+- Back up plugin state before implementation, debugging, or packaging changes.
+- Update `status.json` through the platform state-management script when a phase completes.
+- Stop after the requested phase instead of automatically starting the next phase.
+- If `setup.completed` is false, warn once and suggest `/apc-setup` (do not hard-block).
+
+## Build and Validation
+
+- Run build operations from the repository root.
+- Do not invoke raw `cmake`, `xcodebuild`, `msbuild`, or compiler commands for normal APC builds.
+- Use `node bin/apc.js build <Name>` (preferred, cross-platform) or `scripts/build-and-install.ps1` on Windows / `scripts/build-and-install.sh` on macOS/Linux (they honor `apc.config.json` paths).
+- Check the framework version with `node bin/apc.js version` when reporting issues (canonical source: `package.json`).
+- Start with the narrowest validation relevant to the changed plugin.
+- Do not alter unrelated generated plugins, build artifacts, or user debug output.
+- APC targets **JUCE 9** (`_tools/JUCE`). WebView interop: `@juce-framework/webview` or `native/typescript/webview-interop/dist/index.js`.

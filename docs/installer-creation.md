@@ -1,14 +1,17 @@
 # Installer Creation Guide
 
-This guide covers how to create installers for all platforms.
+This guide is the per-platform installer how-to for the [Ship phase](ship-workflow.md) (`/apc-ship`).
+Ship orchestrates the end-to-end flow; this doc covers the installer tools themselves.
 
 ## Overview
 
 | Platform | Status | Method | Location |
 |----------|--------|--------|----------|
-| Windows | ✅ Implemented | Inno Setup | Local (Windows) |
-| macOS | ❌ Not Implemented | DMG/PKG | Requires macOS |
-| Linux | ❌ Not Implemented | AppImage/DEB | Requires Linux |
+| Windows | ✅ Implemented | Inno Setup `.exe` | Local (Windows): `scripts/installer/create-windows-installer.ps1` |
+| macOS | ⚠️ Scripted (run on macOS) | DMG | Local (macOS): `scripts/installer/create-macos-installer.sh` |
+| Linux | ❌ Manual | AppImage/DEB | Requires Linux (see below) |
+
+Output goes to the configured `paths.release_dir` (default `release/`).
 
 ---
 
@@ -42,38 +45,51 @@ This guide covers how to create installers for all platforms.
 
 ### Output
 
-- **Location**: `dist\{PluginName}-{Version}-Windows-Setup.exe`
+- **Location**: `release\{PluginName}-{Version}-Windows-Setup.exe`
 - **Size**: ~5-20 MB (depends on plugin)
 
 ### Installer Features
 
 - ✅ License agreement (EULA)
 - ✅ Custom installation path
-- ✅ Component selection (VST3, Standalone, Presets, Docs)
+- ✅ Component selection (VST3, CLAP*, Standalone, Presets, Docs)
 - ✅ Start Menu shortcuts
 - ✅ Desktop shortcut option
 - ✅ Uninstaller
 
+*\* The "CLAP Plugin" component is injected into the generated `.iss` only when a
+`{PluginName}.clap` artifact exists in the build output (i.e. the plugin opted
+into CLAP during `/apc-plan`).*
+
 ### Installation Paths
 
 ```
-VST3:     C:\Program Files\Common Files\VST3\{PluginName}.vst3
+VST3:       C:\Program Files\Common Files\VST3\{PluginName}.vst3
+CLAP:       C:\Program Files\Common Files\CLAP\{PluginName}.clap
 Standalone: C:\Program Files\{PluginName}\{PluginName}.exe
-Presets:  C:\ProgramData\{PluginName}\Presets\
+Presets:    C:\ProgramData\{PluginName}\Presets\
 ```
 
 ---
 
-## macOS Installer (NOT IMPLEMENTED)
+## macOS Installer (DMG via script, finalize on macOS)
 
 ### Status
-❌ Cannot be created on Windows
+⚠️ Scripted — must run on macOS (needs `hdiutil`; signing needs an Apple Developer certificate).
 
-### Why
+### Scripted creation
+
+```bash
+# On a Mac, from the repo root (honors paths.release_dir, default release/)
+bash scripts/installer/create-macos-installer.sh <PluginName> <Version> [CompanyName]
+```
+
+This bundles the VST3, AU, CLAP (when present), and Standalone builds into `{PluginName}-{Version}-macOS.dmg`.
+
+### Why it can't run on Windows
 macOS installers require macOS-specific tools:
 - `hdiutil` - DMG creation
-- `pkgbuild` - PKG component creation
-- `productbuild` - PKG distribution creation
+- `pkgbuild` / `productbuild` - PKG creation (manual path below)
 - `codesign` - Code signing
 - Apple Developer certificate
 
@@ -175,6 +191,6 @@ This would enable fully automated releases with installers.
 | Task | Status | How To |
 |------|--------|--------|
 | Windows Installer | ✅ Ready | Use `create-windows-installer.ps1` |
-| macOS Installer | ❌ Not Ready | Requires macOS |
-| Linux Packages | ❌ Not Ready | Requires Linux |
+| macOS Installer | ⚠️ Scripted (run on Mac) | Use `create-macos-installer.sh` |
+| Linux Packages | ❌ Manual | AppImage/DEB steps below |
 | Automated CI/CD | ⚠️ Partial | ZIPs only, installers need implementation |

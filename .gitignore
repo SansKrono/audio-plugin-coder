@@ -5,8 +5,17 @@ plugins/AngelGrain
 plugins/gainknob
 plugins/CloudWash/Org_Code
 
+# plugin sync scratch dirs / oversized assets (source of truth: ../apc_plugins)
+plugins/*/_state_backups/
+plugins/*/_source/
+plugins/*/_design/
+plugins/*/status.json.bak*
+plugins/NoizeMeter/Design/test-tones/
+plugins/GrooXtract/Models/htdemucs_fp16weights.*
+
 # _tools folder
 _tools/DebugView/
+_tools/clap-validator-bin/
 
 # Design Libraries (examples)
 design_library/_exclude/
@@ -35,8 +44,21 @@ PRESS_RELEASE.md
 *.suo
 nul
 
-# plans
+# plans (local only — never publish)
 plans/
+
+# Machine-local APC setup (commit apc.config.example.json instead)
+apc.config.json
+
+# Local Codex orchestration smoke/usage logs
+.tmp/
+
+# Release artifacts (keep release/README.md tracked)
+release/**
+!release/README.md
+
+# Legacy ship folder (replaced by release/). Ignore leftovers.
+dist/
 
 # System
 .DS_Store
@@ -51,7 +73,11 @@ cloudwash_crash_log.txt
 
 # Backups
 _backups/
-dist/
+# python caches
+__pycache__/
+*.pyc
+
+# Local IDE / verification output (SansKrono)
 /build_verification/
 .idea/.gitignore
 .idea/audio-plugin-coder.iml

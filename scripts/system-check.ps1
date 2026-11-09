@@ -4,11 +4,20 @@
 #>
 
 param(
-    [string]$Command,
-    [string]$JucePath
+    [string]$Command = "--check-all",
+    [string]$JucePath,
+    [switch]$Human
 )
 
+. "$PSScriptRoot\lib\Get-ApcPaths.ps1"
+
 function Write-JsonOutput { param([string]$Json) Write-Output $Json }
+
+function Escape-JsonString {
+    param([string]$Value)
+    if ($null -eq $Value) { return "" }
+    return $Value.Replace('\', '\\').Replace('"', '\"')
+}
 
 function Test-VersionGreaterOrEqual {
     param([string]$Version1, [string]$Version2)
@@ -18,26 +27,51 @@ function Test-VersionGreaterOrEqual {
 function Invoke-DetectPlatform {
     $platform = "windows"
     $ver = (Get-CimInstance Win32_OperatingSystem).Version
-    Write-JsonOutput -Json ("{`"platform`":`"$platform`",`"version`":`"$ver`"}")
+    Write-JsonOutput -Json ("{`"platform`":`"windows`",`"version`":`"$(Escape-JsonString $ver)`"}")
+}
+
+function Invoke-CheckGit {
+    try {
+        $out = git --version 2>&1
+        $ver = if ("$out" -match '(\d+\.\d+\.\d+)') { $matches[1] } else { "unknown" }
+        Write-JsonOutput -Json ("{`"found`":true,`"version`":`"$ver`",`"ok`":true}")
+    } catch {
+        Write-JsonOutput -Json ("{`"found`":false,`"ok`":false}")
+    }
+}
+
+function Invoke-CheckNode {
+    try {
+        $out = node --version 2>&1
+        $ver = if ("$out" -match 'v?(\d+\.\d+\.\d+)') { $matches[1] } else { "0.0.0" }
+        $ok = Test-VersionGreaterOrEqual $ver "18.0.0"
+        Write-JsonOutput -Json ("{`"found`":true,`"version`":`"$ver`",`"ok`":$($ok.ToString().ToLower())}")
+    } catch {
+        Write-JsonOutput -Json ("{`"found`":false,`"ok`":false}")
+    }
 }
 
 function Invoke-CheckPython {
     $min = "3.8"
     try {
-        $out = py --version 2>&1
-        if (-not $out) { $out = python --version 2>&1 }
-        
-        if ($out -match "Microsoft Store") {
-            Write-JsonOutput -Json ("{`"found`":false,`"error`":`"Microsoft Store Redirect`"}")
+        $out = $null
+        if (Get-Command py -ErrorAction SilentlyContinue) { $out = (& py --version 2>&1 | Out-String).Trim() }
+        if (-not $out -and (Get-Command python -ErrorAction SilentlyContinue)) { $out = (& python --version 2>&1 | Out-String).Trim() }
+        if (-not $out) {
+            Write-JsonOutput -Json ("{`"found`":false,`"ok`":false}")
             return
         }
-        
+
+        if ($out -match "Microsoft Store") {
+            Write-JsonOutput -Json ("{`"found`":false,`"error`":`"Microsoft Store Redirect`",`"ok`":false}")
+            return
+        }
+
         $ver = if ($out -match '(\d+\.\d+\.\d+)') { $matches[1] } else { "0.0.0" }
-        
         $ok = Test-VersionGreaterOrEqual $ver $min
         Write-JsonOutput -Json ("{`"found`":true,`"version`":`"$ver`",`"ok`":$($ok.ToString().ToLower())}")
     } catch {
-        Write-JsonOutput -Json ("{`"found`":false}")
+        Write-JsonOutput -Json ("{`"found`":false,`"ok`":false}")
     }
 }
 
@@ -50,53 +84,180 @@ function Invoke-CheckVisualStudio {
             return
         }
     }
-    Write-JsonOutput -Json ("{`"found`":false}")
+    Write-JsonOutput -Json ("{`"found`":false,`"ok`":false}")
+}
+
+function Resolve-CMakeExe {
+    # Shared resolver (PATH -> vswhere -> known VS/standalone paths) lives in lib\Get-ApcPaths.ps1
+    return Resolve-ApcCMakeExe
 }
 
 function Invoke-CheckCMake {
     try {
-        $out = cmake --version 2>&1
-        $ver = if ($out -match 'version (\d+\.\d+\.\d+)') { $matches[1] } else { "0.0.0" }
+        $cmakeExe = Resolve-CMakeExe
+        if (-not $cmakeExe) {
+            Write-JsonOutput -Json ("{`"found`":false,`"ok`":false}")
+            return
+        }
+
+        # Force a single string — array -match does not populate $matches and used to throw.
+        $out = & $cmakeExe --version 2>&1 | Out-String
+        $ver = if ($out -match 'version\s+(\d+\.\d+\.\d+)') { $matches[1] } else { "0.0.0" }
         $ok = Test-VersionGreaterOrEqual $ver "3.22"
-        Write-JsonOutput -Json ("{`"found`":true,`"version`":`"$ver`",`"ok`":$($ok.ToString().ToLower())}")
+        $pathJson = Escape-JsonString $cmakeExe
+        Write-JsonOutput -Json ("{`"found`":true,`"version`":`"$ver`",`"ok`":$($ok.ToString().ToLower()),`"path`":`"$pathJson`"}")
     } catch {
-        Write-JsonOutput -Json ("{`"found`":false}")
+        Write-JsonOutput -Json ("{`"found`":false,`"ok`":false,`"error`":`"$(Escape-JsonString $_.Exception.Message)`"}")
+    }
+}
+
+function Invoke-CheckWebView2 {
+    $edgeUpdate = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+    $pv = $null
+    try { $pv = (Get-ItemProperty -Path $edgeUpdate -ErrorAction SilentlyContinue).pv } catch {}
+    if ($pv) {
+        Write-JsonOutput -Json ("{`"found`":true,`"version`":`"$pv`",`"ok`":true}")
+    } else {
+        Write-JsonOutput -Json ("{`"found`":false,`"ok`":false,`"hint`":`"Install WebView2 Evergreen Runtime`"}")
+    }
+}
+
+function Invoke-CheckWebView2Sdk {
+    # JUCE's FindWebView2.cmake looks for the Microsoft.Web.WebView2 NuGet package here
+    # (or in JUCE_WEBVIEW2_PACKAGE_LOCATION). The Evergreen Runtime alone is not enough
+    # to build NEEDS_WEBVIEW2 plugins - the static loader lib comes from this package.
+    $searchDir = Join-Path $env:USERPROFILE "AppData\Local\PackageManagement\NuGet\Packages"
+    $pkg = $null
+    try {
+        $pkg = Get-ChildItem -Path $searchDir -Directory -Filter "*Microsoft.Web.WebView2*" -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | Select-Object -First 1
+    } catch {}
+    if ($pkg -and (Test-Path (Join-Path $pkg.FullName "build\native\include\WebView2.h"))) {
+        $ver = if ($pkg.Name -match '(\d+\.\d+\.\d+\.\d+)') { $matches[1] } else { "unknown" }
+        Write-JsonOutput -Json ("{`"found`":true,`"version`":`"$ver`",`"ok`":true,`"path`":`"$(Escape-JsonString $pkg.FullName)`"}")
+    } else {
+        $hint = "Register-PackageSource -provider NuGet -name nugetRepository -location https://www.nuget.org/api/v2; Install-Package Microsoft.Web.WebView2 -Scope CurrentUser -RequiredVersion 1.0.3485.44 -Source nugetRepository"
+        Write-JsonOutput -Json ("{`"found`":false,`"ok`":false,`"hint`":`"$(Escape-JsonString $hint)`"}")
     }
 }
 
 function Invoke-CheckJUCE {
-    # FIX: Updated to use _tools instead of tools
-    $path = ".\_tools\JUCE"
-    
-    if (Test-Path "$path\modules\juce_core\juce_core.h") {
-        Write-JsonOutput -Json ("{`"found`":true,`"path`":`"$path`",`"ok`":true}")
-    } else {
-        Write-JsonOutput -Json ("{`"found`":false,`"path`":`"$path`"}")
+    $path = if ($JucePath) { $JucePath } else { ".\_tools\JUCE" }
+    $header = Join-Path $path "modules\juce_core\system\juce_StandardHeader.h"
+    $core = Join-Path $path "modules\juce_core\juce_core.h"
+    $pathJson = Escape-JsonString $path
+
+    if (-not (Test-Path $core)) {
+        Write-JsonOutput -Json ("{`"found`":false,`"path`":`"$pathJson`",`"ok`":false}")
+        return
     }
+
+    $major = 0
+    if (Test-Path $header) {
+        $content = Get-Content $header -Raw
+        if ($content -match 'JUCE_MAJOR_VERSION\s+(\d+)') {
+            $major = [int]$matches[1]
+        }
+    }
+
+    $ok = $major -ge 9
+    Write-JsonOutput -Json ("{`"found`":true,`"path`":`"$pathJson`",`"major`":$major,`"ok`":$($ok.ToString().ToLower()),`"required_major`":9}")
 }
 
 function Invoke-CheckPluginval {
-    # FIX: Updated to use _tools instead of tools
-    $path = ".\_tools\pluginval\pluginval.exe"
+    # Downloaded release (preferred), then a binary inside the source submodule
+    $path = ".\_tools\pluginval-bin\pluginval.exe"
+    if (-not (Test-Path $path)) { $path = ".\_tools\pluginval\pluginval.exe" }
     if (Test-Path $path) {
-        Write-JsonOutput -Json ("{`"found`":true,`"path`":`"$path`",`"ok`":true}")
+        Write-JsonOutput -Json ("{`"found`":true,`"path`":`"$(Escape-JsonString $path)`",`"ok`":true}")
     } else {
-        Write-JsonOutput -Json ("{`"found`":false}")
+        if (Test-Path ".\_tools\pluginval\CMakeLists.txt") {
+            Write-JsonOutput -Json ("{`"found`":true,`"path`":`".\\\\_tools\\\\pluginval`",`"ok`":true,`"built`":false}")
+        } else {
+            Write-JsonOutput -Json ("{`"found`":false,`"ok`":false}")
+        }
     }
+}
+
+function Invoke-CheckConfig {
+    $hasLocal = Test-Path ".\apc.config.json"
+    $hasExample = Test-Path ".\apc.config.example.json"
+    $completed = $false
+    if ($hasLocal) {
+        try {
+            $cfg = Get-Content ".\apc.config.json" -Raw | ConvertFrom-Json
+            $completed = [bool]$cfg.setup.completed
+        } catch {}
+    }
+    Write-JsonOutput -Json ("{`"config_present`":$($hasLocal.ToString().ToLower()),`"example_present`":$($hasExample.ToString().ToLower()),`"setup_completed`":$($completed.ToString().ToLower())}")
 }
 
 function Invoke-CheckAll {
     Write-Output "{"
     Write-Output "  `"platform`": $(Invoke-DetectPlatform),"
+    Write-Output "  `"git`": $(Invoke-CheckGit),"
+    Write-Output "  `"node`": $(Invoke-CheckNode),"
     Write-Output "  `"python`": $(Invoke-CheckPython),"
     Write-Output "  `"vs2022`": $(Invoke-CheckVisualStudio),"
     Write-Output "  `"cmake`": $(Invoke-CheckCMake),"
+    Write-Output "  `"webview2`": $(Invoke-CheckWebView2),"
+    Write-Output "  `"webview2_sdk`": $(Invoke-CheckWebView2Sdk),"
     Write-Output "  `"juce`": $(Invoke-CheckJUCE),"
-    Write-Output "  `"pluginval`": $(Invoke-CheckPluginval)"
+    Write-Output "  `"pluginval`": $(Invoke-CheckPluginval),"
+    Write-Output "  `"apc_config`": $(Invoke-CheckConfig)"
     Write-Output "}"
 }
 
+function Show-HumanSummary {
+    $json = (Invoke-CheckAll | Out-String).Trim()
+    try {
+        $obj = $json | ConvertFrom-Json
+    } catch {
+        Write-Host "Raw system-check JSON (parse failed):" -ForegroundColor Yellow
+        Write-Host $json
+        return
+    }
+    Write-Host ""
+    Write-Host "APC System Check (Windows)" -ForegroundColor Cyan
+    Write-Host "--------------------------"
+    $map = [ordered]@{
+        git = "Git"
+        node = "Node.js (>=18)"
+        python = "Python (>=3.8)"
+        vs2022 = "Visual Studio C++"
+        cmake = "CMake (>=3.22)"
+        webview2 = "WebView2 Runtime"
+        webview2_sdk = "WebView2 SDK (NuGet, needed to build)"
+        juce = "JUCE (>=9)"
+        pluginval = "pluginval"
+    }
+    foreach ($key in $map.Keys) {
+        $item = $obj.$key
+        $ok = $false
+        if ($null -ne $item -and $item.PSObject.Properties.Name -contains 'ok') {
+            $ok = [bool]$item.ok
+        }
+        $label = $map[$key]
+        if ($ok) {
+            Write-Host ("  [OK]  {0}" -f $label) -ForegroundColor Green
+        } else {
+            Write-Host ("  [!!]  {0}" -f $label) -ForegroundColor Yellow
+        }
+    }
+    if ($obj.apc_config -and $obj.apc_config.setup_completed) {
+        Write-Host "  [OK]  apc.config.json setup completed" -ForegroundColor Green
+    } else {
+        Write-Host "  [--]  Run /apc-setup to create apc.config.json" -ForegroundColor DarkGray
+    }
+    Write-Host ""
+}
+
 switch ($Command) {
-    "--check-all" { Invoke-CheckAll }
-    default { Invoke-CheckAll }
+    "--check-all" {
+        if ($Human) { Show-HumanSummary } else { Invoke-CheckAll }
+    }
+    "--human" { Show-HumanSummary }
+    default {
+        if ($Human) { Show-HumanSummary } else { Invoke-CheckAll }
+    }
 }

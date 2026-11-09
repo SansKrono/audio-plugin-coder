@@ -6,6 +6,11 @@
 ;   {#PluginVersion}  - Version (e.g., 1.0.0)
 ;   {#CompanyName}    - Company name (e.g., APC)
 ;   {#PluginURL}      - Plugin website URL
+;   {#ReleaseDir}     - Absolute ship/output directory (from paths.release_dir)
+;   {#BuildDir}       - Absolute build directory (from paths.build_dir)
+;   {#PluginsDir}     - Absolute plugins directory (from paths.plugins_dir)
+;   {#IconPath}       - Absolute path to icon.ico (empty if missing)
+;   {#SetupIconLine}  - Full SetupIconFile= line, or empty if no icon
 
 #define PluginName "{#PluginName}"
 #define PluginVersion "{#PluginVersion}"
@@ -27,14 +32,15 @@ DefaultGroupName={#PluginName}
 DisableProgramGroupPage=yes
 
 ; Output settings
-OutputDir=..\..\dist
+OutputDir="{#ReleaseDir}"
 OutputBaseFilename={#PluginName}-{#PluginVersion}-Windows-Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+LicenseFile="{#ReleaseDir}/LICENSE.txt"
 
 ; Appearance
-SetupIconFile={#IconPath}
+{#SetupIconLine}
 UninstallDisplayIcon={commoncf}\VST3\{#PluginName}.vst3\icon.ico
 UninstallDisplayName={#PluginName} {#PluginVersion}
 
@@ -62,6 +68,7 @@ Name: "custom"; Description: "Custom installation"; Flags: iscustom
 
 [Components]
 Name: "vst3"; Description: "VST3 Plugin"; Types: full custom; Flags: fixed
+{#ClapComponent}
 Name: "standalone"; Description: "Standalone Application"; Types: full custom
 Name: "presets"; Description: "Factory Presets"; Types: full custom
 Name: "documentation"; Description: "Documentation"; Types: full custom
@@ -73,55 +80,58 @@ Name: "{userappdata}\{#PluginName}"; Components: vst3 standalone
 
 [Files]
 ; VST3 Plugin
-Source: "..\..\build\plugins\{#PluginName}\{#PluginName}_artefacts\Release\VST3\{#PluginName}.vst3\*"; \
+Source: "{#BuildDir}/plugins/{#PluginName}/{#PluginName}_artefacts/Release/VST3/{#PluginName}.vst3\*"; \
     DestDir: "{app}"; \
     Components: vst3; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Icon for uninstaller display
-Source: "..\..\plugins\{#PluginName}\Assets\icon.ico"; \
+Source: "{#PluginsDir}/{#PluginName}/Assets/icon.ico"; \
     DestDir: "{app}"; \
     Components: vst3; \
-    Flags: ignoreversion
+    Flags: ignoreversion skipifsourcedoesntexist
+
+; CLAP Plugin (single file on Windows; per CLAP spec installs to Common Files\CLAP)
+{#ClapFiles}
 
 ; Standalone Application
-Source: "..\..\build\plugins\{#PluginName}\{#PluginName}_artefacts\Release\Standalone\{#PluginName}.exe"; \
+Source: "{#BuildDir}/plugins/{#PluginName}/{#PluginName}_artefacts/Release/Standalone/{#PluginName}.exe"; \
     DestDir: "{autopf}\{#PluginName}"; \
     Components: standalone; \
     Flags: ignoreversion
 
 ; Copy icon.ico to standalone folder for shortcut icons
-Source: "..\..\plugins\{#PluginName}\Assets\icon.ico"; \
+Source: "{#PluginsDir}/{#PluginName}/Assets/icon.ico"; \
     DestDir: "{autopf}\{#PluginName}"; \
     Components: standalone; \
-    Flags: ignoreversion
+    Flags: ignoreversion skipifsourcedoesntexist
 
 ; Presets (optional - only if they exist)
-Source: "..\..\plugins\{#PluginName}\Presets\*"; \
+Source: "{#PluginsDir}/{#PluginName}/Presets\*"; \
     DestDir: "{commonappdata}\{#PluginName}\Presets"; \
     Components: presets; \
     Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 ; Documentation - Auto-include ALL files from Documentation folder
 ; This goes INSIDE the plugin bundle, not in VST3 root (keeps VST3 folder clean)
-Source: "..\..\plugins\{#PluginName}\Documentation\*"; \
+Source: "{#PluginsDir}/{#PluginName}/Documentation\*"; \
     DestDir: "{app}\Documentation"; \
     Components: documentation; \
     Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist ignoreversion
 
 ; Also copy documentation to Standalone folder (if standalone is installed)
-Source: "..\..\plugins\{#PluginName}\Documentation\*"; \
+Source: "{#PluginsDir}/{#PluginName}/Documentation\*"; \
     DestDir: "{autopf}\{#PluginName}\Documentation"; \
     Components: standalone documentation; \
     Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist ignoreversion
 
 ; Root-level license files (required for compliance)
-Source: "..\..\dist\LICENSE.txt"; \
+Source: "{#ReleaseDir}/LICENSE.txt"; \
     DestDir: "{app}\Documentation"; \
     Components: documentation; \
     Flags: ignoreversion skipifsourcedoesntexist
 
-Source: "..\..\CHANGELOG.md"; \
+Source: "{#RepoRoot}/CHANGELOG.md"; \
     DestDir: "{app}\Documentation"; \
     Components: documentation; \
     Flags: ignoreversion skipifsourcedoesntexist
@@ -215,5 +225,5 @@ end;
 
 [Messages]
 ; Custom messages
-WelcomeLabel2=This will install [name] [version] on your computer.%n%nThe plugin includes VST3 format for use in your DAW, and a standalone application.%n%nIt is recommended that you close all DAW applications before continuing.
+WelcomeLabel2=This will install [name] [version] on your computer.%n%nThe plugin includes VST3 / CLAP formats for use in your DAW, and a standalone application.%n%nIt is recommended that you close all DAW applications before continuing.
 FinishedLabel=Setup has finished installing [name] on your computer. You may need to restart your DAW for the plugin to appear.

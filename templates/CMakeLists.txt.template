@@ -36,35 +36,113 @@ message(STATUS "{PLUGIN_NAME}: WebView backend: ${WEBVIEW_BACKEND}")
 # ============================================
 # BINARY DATA (UI Resources)
 # ============================================
-# We create a zip file of the public folder to avoid file name collisions in BinaryData
-# and to match the C++ code's expectation of a zip file.
+# Uncomment and modify if using binary data for UI
+# juce_add_binary_data({PLUGIN_NAME}_Resources
+#     SOURCES
+#         Source/ui/public/index.html
+#     NAMESPACE {PLUGIN_NAME}_BinaryData
+# )
 
-set(WEB_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/Source/ui")
-set(WEB_UI_ZIP "${CMAKE_CURRENT_BINARY_DIR}/{PLUGIN_NAME}_WebUI.zip")
-
-# Create the zip file command
-add_custom_command(
-    OUTPUT ${WEB_UI_ZIP}
-    COMMAND ${CMAKE_COMMAND} -E tar "cf" "${WEB_UI_ZIP}" --format=zip "."
-    WORKING_DIRECTORY "${WEB_UI_ROOT}/public"
-    DEPENDS 
-        "${WEB_UI_ROOT}/public/index.html"
-        # Add other dependencies if known, or rely on directory timestamp if possible (CMake doesn't do dirs well)
-    COMMENT "Zipping Web UI assets..."
+# ============================================
+# PLUGIN DEFINITION
+# ============================================
+juce_add_plugin({PLUGIN_NAME}
+    # Company info
+    COMPANY_NAME "{COMPANY_NAME}"
+    PLUGIN_MANUFACTURER_CODE {MANUFACTURER_CODE}
+    PLUGIN_CODE {PLUGIN_CODE}
+    
+    # Formats (platform-specific)
+    FORMATS ${PLUGIN_FORMATS}
+    
+    # Product info
+    PRODUCT_NAME "{PLUGIN_NAME}"
+    
+    # WebView support
+    NEEDS_WEBVIEW2 ${NEEDS_WEBVIEW2}
+    
+    # VST3 categories (comma-separated)
+    VST3_CATEGORIES {VST3_CATEGORIES}
+    
+    # AU main type (macOS only)
+    AU_MAIN_TYPE ${AU_MAIN_TYPE}
+    
+    # LV2 URI (Linux only)
+    LV2URI ${LV2_URI}
+    
+    # Icon for standalone executable (optional)
+    # Uncomment and create Assets/icon.ico to add an icon
+    # ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.ico"
 )
 
-# Create a target for the zip file generation
-add_custom_target({PLUGIN_NAME}_WebUI_Zip DEPENDS ${WEB_UI_ZIP})
+# ============================================
+# CLAP FORMAT (opt-in)
+# ============================================
+# Emitted only when the plugin opted into CLAP during /apc-plan
+# (recorded in status.json -> formats.clap). Requires the
+# _tools/clap-juce-extensions submodule (root option APC_ENABLE_CLAP);
+# the COMMAND guard keeps configure working if the submodule is absent.
+#
+# CLAP_ID: {clap.id_prefix from apc.config.json}.{plugin-slug}, e.g.
+#   "com.noizefield.cloudwash" - must be stable across versions.
+# CLAP_FEATURES: first entry is the category. Common mappings:
+#   effect      -> audio-effect
+#   synth       -> instrument synthesizer
+#   note/MIDI   -> note-effect
+#   analyzer    -> analyzer
+option({PLUGIN_NAME}_ENABLE_CLAP "Build {PLUGIN_NAME} in CLAP format" {CLAP_ENABLED})
+if({PLUGIN_NAME}_ENABLE_CLAP AND COMMAND clap_juce_extensions_plugin)
+    clap_juce_extensions_plugin(TARGET {PLUGIN_NAME}
+        CLAP_ID "{CLAP_ID}"
+        CLAP_FEATURES {CLAP_FEATURES})
+endif()
 
-# Embed the zip file
-juce_add_binary_data({PLUGIN_NAME}_WebUI
-    SOURCES
-        ${WEB_UI_ZIP}
+# ============================================
+# SOURCE FILES
+# ============================================
+target_sources({PLUGIN_NAME}
+    PRIVATE
+        Source/PluginProcessor.cpp
+        Source/PluginEditor.cpp
+        # Add additional source files here
 )
 
-# Ensure the zip is created before compiling the binary data
-add_dependencies({PLUGIN_NAME}_WebUI {PLUGIN_NAME}_WebUI_Zip)
+# ============================================
+# INCLUDE DIRECTORIES
+# ============================================
+target_include_directories({PLUGIN_NAME}
+    PRIVATE
+        Source
+        # Add additional include paths here
+)
 
+# ============================================
+# LINK LIBRARIES
+# ============================================
+target_link_libraries({PLUGIN_NAME}
+    PRIVATE
+        # Binary data (if used)
+        # {PLUGIN_NAME}_Resources
+        
+        # JUCE modules
+        juce::juce_audio_basics
+        juce::juce_audio_devices
+        juce::juce_audio_formats
+        juce::juce_audio_plugin_client
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+        juce::juce_core
+        juce::juce_data_structures
+        juce::juce_dsp
+        juce::juce_events
+        juce::juce_graphics
+        juce::juce_gui_basics
+        juce::juce_gui_extra
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags
+)
 
 # ============================================
 # COMPILE DEFINITIONS (Platform-Specific)
@@ -100,7 +178,6 @@ if(UNIX AND NOT APPLE)
         PUBLIC
             JUCE_USE_CURL=0
             JUCE_JACK=1
-            JUCE_WEB_BROWSER=1
     )
 endif()
 
@@ -139,8 +216,34 @@ add_custom_target({PLUGIN_NAME}_CopyStandalone
     COMMENT "Copying Standalone for packaging"
 )
 
+# Copy CLAP to build output for packaging (only when CLAP is enabled;
+# .clap is a single file on Windows/Linux, a bundle directory on macOS)
+if({PLUGIN_NAME}_ENABLE_CLAP AND COMMAND clap_juce_extensions_plugin)
+    if(APPLE)
+        add_custom_target({PLUGIN_NAME}_CopyCLAP
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "$<TARGET_FILE_DIR:{PLUGIN_NAME}_CLAP>/../.."
+                ${CMAKE_BINARY_DIR}/dist/{PLUGIN_NAME}.clap
+            DEPENDS {PLUGIN_NAME}_CLAP
+            COMMENT "Copying CLAP bundle for packaging"
+        )
+    else()
+        add_custom_target({PLUGIN_NAME}_CopyCLAP
+            COMMAND ${CMAKE_COMMAND} -E copy
+                $<TARGET_FILE:{PLUGIN_NAME}_CLAP>
+                ${CMAKE_BINARY_DIR}/dist/
+            DEPENDS {PLUGIN_NAME}_CLAP
+            COMMENT "Copying CLAP for packaging"
+        )
+    endif()
+endif()
+
 # Create distribution directory
 add_custom_target({PLUGIN_NAME}_Dist
     DEPENDS {PLUGIN_NAME}_CopyVST3 {PLUGIN_NAME}_CopyStandalone
     COMMENT "Creating distribution package"
 )
+
+if({PLUGIN_NAME}_ENABLE_CLAP AND COMMAND clap_juce_extensions_plugin)
+    add_dependencies({PLUGIN_NAME}_Dist {PLUGIN_NAME}_CopyCLAP)
+endif()

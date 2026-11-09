@@ -17,7 +17,7 @@ APC includes an auto-capture system that learns from problems. This guide covers
 ### Location
 
 ```
-.agent/troubleshooting/
+.agents/troubleshooting/
 ├── known-issues.yaml           # Issue registry
 ├── _template.md                # Resolution template
 └── resolutions/                # Solution documents
@@ -87,7 +87,7 @@ Auto-capture triggers after:
 ```powershell
 # Generate unique issue ID
 $category = "build"  # or webview, packaging, etc.
-$existingIssues = (Get-Content .agent/troubleshooting/known-issues.yaml | 
+$existingIssues = (Get-Content .agents/troubleshooting/known-issues.yaml | 
     Select-String -Pattern "id: $category-" | Measure-Object).Count
 $newId = "$category-$(($existingIssues + 1).ToString('000'))"
 
@@ -111,7 +111,7 @@ $newIssue = @"
 "@
 
 # Append to known-issues.yaml
-Add-Content -Path .agent/troubleshooting/known-issues.yaml -Value $newIssue
+Add-Content -Path .agents/troubleshooting/known-issues.yaml -Value $newIssue
 ```
 
 ---
@@ -220,7 +220,7 @@ private:
 
 **Prevention:** Always declare members in order: Relays → WebView → Attachments.
 
-**See:** [webview-member-order-crash.md](.agent/troubleshooting/resolutions/webview-member-order-crash.md)
+**See:** [webview-member-order-crash.md](../.agents/troubleshooting/resolutions/webview-member-order-crash.md)
 
 ---
 
@@ -270,7 +270,7 @@ YourPluginEditor::YourPluginEditor(YourAudioProcessor& p)
 
 **Prevention:** Always create ALL parameter attachments BEFORE calling `addAndMakeVisible(webView)`.
 
-**See:** [webview-attachment-order-crash.md](.agent/troubleshooting/resolutions/webview-attachment-order-crash.md)
+**See:** [webview-attachment-order-crash.md](../.agents/troubleshooting/resolutions/webview-attachment-order-crash.md)
 
 ---
 
@@ -425,7 +425,7 @@ title_font_ = visage::Font(20.0f,
 fatal error: gtk/gtk.h: No such file or directory
 ```
 
-**Root Cause:** Plugin CMakeLists.txt sets `NEEDS_WEBVIEW2` but not `NEEDS_WEB_BROWSER`. JUCE 8 has separate flags: `NEEDS_WEBVIEW2` (Windows only) and `NEEDS_WEB_BROWSER` (Linux only). Without the latter, GTK/WebKit include paths are never added.
+**Root Cause:** Plugin CMakeLists.txt sets `NEEDS_WEBVIEW2` but not `NEEDS_WEB_BROWSER`. JUCE keeps separate flags: `NEEDS_WEBVIEW2` (Windows only) and `NEEDS_WEB_BROWSER` (Linux only). Without the latter, GTK/WebKit include paths are never added.
 
 **Solution:**
 In plugin CMakeLists.txt, add for Linux:
@@ -545,7 +545,8 @@ console.log("Debug message:", variable);
 
 ### VS Code: Debugging
 
-**launch.json configuration:**
+**launch.json configuration** (adjust `program` to your configured
+`paths.build_dir` + plugin artefact path — default `build/` shown):
 ```json
 {
   "version": "0.2.0",
@@ -554,7 +555,7 @@ console.log("Debug message:", variable);
       "name": "Debug Standalone",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/build/plugins/MyPlugin/MyPlugin_artefacts/Debug/Standalone/MyPlugin.exe",
+      "program": "${workspaceFolder}/build/MyPlugin_artefacts/Debug/Standalone/MyPlugin.exe",
       "args": [],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
@@ -592,14 +593,14 @@ If a phase goes wrong:
 
 ```powershell
 # Check available backups
-Get-ChildItem plugins/MyPlugin/status.json.backup.*
+Get-ChildItem $PluginPath/status.json.backup.*
 
 # Restore previous state
 .\scripts\state-management.ps1
-Restore-PluginState -PluginPath "plugins/MyPlugin"
+Restore-PluginState -PluginPath $PluginPath
 
 # Or manually reset phase
-Update-PluginState -PluginPath "plugins/MyPlugin" -Phase "design_complete"
+Update-PluginState -PluginPath $PluginPath -Phase "design_complete"
 ```
 
 ### Git Recovery
@@ -609,16 +610,16 @@ Update-PluginState -PluginPath "plugins/MyPlugin" -Phase "design_complete"
 git status
 
 # Reset to last commit
-git checkout -- plugins/MyPlugin/
+git checkout -- $PluginPath/
 
 # Or reset specific files
-git checkout -- plugins/MyPlugin/Source/PluginEditor.cpp
+git checkout -- $PluginPath/Source/PluginEditor.cpp
 ```
 
 ### Clean Build
 
 ```powershell
-# Remove all build artifacts
+# Remove all build artifacts (default build/; use paths.build_dir if overridden)
 Remove-Item -Recurse -Force build/
 
 # Rebuild from scratch
@@ -632,9 +633,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-and-install.ps1 -Plugin
 ### Before Asking
 
 1. **Check known issues:**
-   ```powershell
-   Get-Content .agent/troubleshooting/known-issues.yaml | Select-String "your error"
-   ```
+    ```powershell
+    Get-Content .agents/troubleshooting/known-issues.yaml | Select-String "your error"
+    ```
 
 2. **Run validation:**
    ```powershell
@@ -644,7 +645,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-and-install.ps1 -Plugin
 
 3. **Check state:**
    ```powershell
-   Get-Content plugins/MyPlugin/status.json | ConvertFrom-Json
+   Get-Content $PluginPath/status.json | ConvertFrom-Json
    ```
 
 ### Information to Provide
@@ -662,10 +663,12 @@ When reporting an issue:
 ## Prevention Checklist
 
 ### Before Building
-- [ ] JUCE submodules initialized
+- [ ] JUCE 9 submodule initialized (`git submodule update --init --recursive`)
 - [ ] CMake 3.22+ installed
-- [ ] Visual Studio 2022 installed (Windows)
-- [ ] WebView2 Runtime installed (for WebView plugins)
+- [ ] Windows: Visual Studio 2022 + WebView2 Runtime (for WebView plugins)
+- [ ] macOS: Xcode + Command Line Tools (WebView uses system WKWebView)
+- [ ] Linux: WebKitGTK + EGL dev packages (`system-check.sh` probes both)
+- [ ] `/apc-setup` completed (`apc.config.json` → `setup.completed`)
 
 ### Before Testing
 - [ ] Build succeeded without errors
@@ -684,7 +687,7 @@ When reporting an issue:
 
 ## Related Documentation
 
-- [Known Issues](.agent/troubleshooting/known-issues.yaml) - Full issue database
+- [Known Issues](../.agents/troubleshooting/known-issues.yaml) - Full issue database
 - [WebView Framework](webview-framework.md) - WebView-specific troubleshooting
 - [Build System](build-system.md) - Build troubleshooting
 - [State Management](state-management-deep-dive.md) - State recovery
