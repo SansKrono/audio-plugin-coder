@@ -104,7 +104,7 @@ if (typeof window.__JUCE__ === "undefined") {
       input_gain: s.input_gain,
       hpf: Math.max(s.hpf, 20 + 30 * t),
       transient_attack: clamp(s.transient_attack + (t > 0.5 ? (t - 0.5) * 8 : 0), -12, 12),
-      transient_sustain: clamp(s.transient_sustain + (t < 0.5 ? -3 * (1 - Math.abs(t - 0.25) / 0.25) : 0), -12, 6),
+      transient_sustain: s.transient_sustain,   // not driven by the macro
       eq_kick: clamp(s.eq_kick + 4 * t, -12, 12),
       eq_box: clamp(s.eq_box - 3 * t, -12, 12),
       eq_snare: clamp(s.eq_snare + 3 * t, -12, 12),

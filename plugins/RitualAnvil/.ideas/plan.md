@@ -31,7 +31,8 @@
 - [x] State save/restore (APVTS XML), version tag
 - [x] Heat output compensation calibrated on 3 real drum stems (`Tests/Calibrate.cpp`): −d + 0.00042·d³ dB → ±1 dB to 12 dB drive, ±2.5 dB at 20 dB (signal-dependent)
 - [x] Mix Ready sweep measured + listening renders (`build/RitualAnvil_renders`, raw + loudness-matched)
-- [ ] **Voicing sign-off (by ear):** Mix Ready dips −1.4…−1.6 dB around 25 % (sustain dip + box cut) before rising to 0…+2 dB at 100 %. Offsets unchanged pending user listening
+- [x] Mix Ready dip removed (user decision from the measured curve): macro no longer drives sustain. Loudness vs input now −0.4…−0.2 dB at 0 %, +0.1…+0.3 dB at 25 %, +0.0…+2.0 dB at 100 % (3 stems)
+- [ ] **By-ear sign-off** of Mix Ready + Heat character (renders in `build/RitualAnvil_renders`)
 - [x] pluginval (strictness 10, VST3 + AU) + auval
 
 ### Phase 4.2: UI Binding (done in 4.1.1)

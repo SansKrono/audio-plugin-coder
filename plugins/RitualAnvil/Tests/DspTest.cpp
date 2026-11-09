@@ -159,10 +159,12 @@ namespace
         near ("t=1: Ceiling untouched", e1[Ceiling], -0.3, 1e-6);
         near ("t=1: Input untouched", e1[InputGain], 0.0, 1e-6);
 
-        near ("t=0.25: Sustain dip -3 dB", at (25.0f)[TransientSustain], -3.0, 1e-4);
-        near ("t=0.01: Sustain continuous (~-0.12 dB)", at (1.0f)[TransientSustain], -0.12, 1e-3);
+        for (float pct : { 1.0f, 25.0f, 40.0f, 75.0f })
+        {
+            char label[64]; std::snprintf (label, sizeof label, "t=%.2f: Sustain untouched by macro", pct / 100.0f);
+            near (label, at (pct)[TransientSustain], 0.0, 1e-6);
+        }
         near ("t=0.01: HPF continuous (40 Hz, floor 20.3)", at (1.0f)[Hpf], 40.0, 1e-4);
-        near ("t=0.5: Sustain back to 0", at (50.0f)[TransientSustain], 0.0, 1e-4);
         near ("t=0.5: Attack 0", at (50.0f)[TransientAttack], 0.0, 1e-4);
         near ("t=0.5: Width 100 %", at (50.0f)[Width], 100.0, 1e-4);
         near ("t=0.4: Punch 0 %", at (40.0f)[Punch], 0.0, 1e-4);

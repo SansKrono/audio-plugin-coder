@@ -66,7 +66,7 @@ Notes:
 | HPF | `max(manual, 20 + 30t)` | floor, not sum — avoids runaway HPF. Floor starts at param min (20 Hz) so no jump at t = 0⁺ (POC jumped to 30 Hz); same 50 Hz at full |
 | Kick / Box / Snare / Pres / Air | `+4t / −3t / +3t / +2t / +4t` dB | |
 | Transient attack | `t > 0.5 ? (t−0.5)·8 : 0` dB | |
-| Transient sustain | `t < 0.5 ? −3·(1 − |t−0.25|/0.25) : 0` dB | triangle dip, −3 dB at 25 %, 0 at 0 and 50 %. POC jumped straight to −3 dB at t = 0⁺; made continuous |
+| Transient sustain | none | **Removed in the 4.1.3 review (measured loudness curve).** POC dipped sustain below 50 % (later a −3 dB triangle at 25 %), which made Mix Ready ~1.5 dB quieter around 25 % before it got louder |
 | Punch blend | `+clamp((t−0.4)·0.5/0.6, 0, 0.5)` | total blend clamped to 0.5 |
 | Heat drive | `t > 0.6 ? (t−0.6)·15 : 0` dB | total clamped to 20 dB |
 | Width | `+clamp((t−0.5)·2, 0, 1)·0.2` (×100 %) | total clamped 50–150 % |

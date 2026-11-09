@@ -26,10 +26,9 @@ namespace anvil
         // HPF floor rises 20 → 50 Hz (no jump at t = 0+)
         e[Hpf] = clampTo (Hpf, std::max (manual[Hpf], 20.0f + 30.0f * t));
 
-        // Transients: attack lift above 50 %, triangle sustain dip (−3 dB at 25 %) below 50 %
-        e[TransientAttack]  = clampTo (TransientAttack, manual[TransientAttack] + (t > 0.5f ? (t - 0.5f) * 8.0f : 0.0f));
-        e[TransientSustain] = clampTo (TransientSustain, manual[TransientSustain]
-                                                         + (t < 0.5f ? -3.0f * (1.0f - std::abs (t - 0.25f) / 0.25f) : 0.0f));
+        // Transients: attack lift above 50 %. Sustain is not touched by the macro: the POC's
+        // sustain dip below 50 % made Mix Ready ~1.5 dB quieter around 25 % (removed in the 4.1.3 review, from the measured loudness curve).
+        e[TransientAttack] = clampTo (TransientAttack, manual[TransientAttack] + (t > 0.5f ? (t - 0.5f) * 8.0f : 0.0f));
 
         // Tone EQ
         e[EqKick]     = clampTo (EqKick,     manual[EqKick]     + 4.0f * t);

@@ -47,4 +47,4 @@ Control set and ranges taken from the Ritual Suite POC (`RitualEngine/Source/Eng
 - All parameters automatable and smoothed (~20 ms gains, ~50 ms frequencies).
 - Frequency params use log skew; dB params linear.
 
-**Design-phase amendment (v1 law, see architecture.md):** HPF floor = `max(manual, 20 + 30t)` and sustain dip = triangle (−3 dB at t = 0.25, 0 at t = 0 and 0.5) so the macro has no jump at t = 0⁺. POC formulas above kept for reference.
+**Design-phase amendment (v1 law, see architecture.md):** HPF floor = `max(manual, 20 + 30t)` so the macro has no jump at t = 0⁺. **Sustain dip removed** (4.1.3 review: it made Mix Ready ~1.5 dB quieter near 25 %); the macro no longer drives sustain. POC formulas above kept for reference.

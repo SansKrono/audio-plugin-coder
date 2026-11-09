@@ -54,7 +54,7 @@
         "poc_config": "RitualAnvil/Assets/anvil_config.json"
     },
     "decisions": {
-        "macro_law": "additive offset, clamped to param range; HPF floor max(manual, 20+30t); sustain triangle dip (continuous at t=0)"
+        "macro_law": "additive offset, clamped to param range; HPF floor max(manual, 20+30t); sustain not driven by macro (dip removed after 4.1.3 review)"
     },
     "design": {
         "approved_version": "v1",
@@ -80,7 +80,7 @@
         "heat_compensation": "-d + 0.00042 d^3 dB (3 drum stems)",
         "renders": "build/RitualAnvil_renders",
         "pending": [
-            "by-ear voicing sign-off (Mix Ready dip near 25 %)",
+            "by-ear voicing sign-off (Mix Ready + Heat)",
             "open editor in a DAW"
         ]
     }
