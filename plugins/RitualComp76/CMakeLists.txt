@@ -105,15 +105,17 @@ endif()
 # ============================================
 # Offline DSP tests (not built by default)
 #   cmake --build build --target RitualComp76_DspTest
+#   ./build/plugins/RitualComp76/RitualComp76_DspTest
+# Links the plugin's shared-code library so the real processor is tested;
+# reuses its include paths and definitions so JUCE module config matches.
 # ============================================
-juce_add_console_app(RitualComp76_DspTest PRODUCT_NAME "RitualComp76_DspTest")
-set_target_properties(RitualComp76_DspTest PROPERTIES EXCLUDE_FROM_ALL TRUE)
-target_sources(RitualComp76_DspTest PRIVATE Tests/DspTest.cpp Source/FetCompressor.cpp)
-target_include_directories(RitualComp76_DspTest PRIVATE Source)
-target_compile_definitions(RitualComp76_DspTest PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
+add_executable(RitualComp76_DspTest EXCLUDE_FROM_ALL Tests/DspTest.cpp)
+target_include_directories(RitualComp76_DspTest PRIVATE $<TARGET_PROPERTY:RitualComp76,INCLUDE_DIRECTORIES>)
+target_compile_definitions(RitualComp76_DspTest PRIVATE $<TARGET_PROPERTY:RitualComp76,COMPILE_DEFINITIONS>)
 target_link_libraries(RitualComp76_DspTest
-    PRIVATE juce::juce_audio_basics
-    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+    PRIVATE RitualComp76
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_lto_flags)
 
 # NOTE: no per-target XCODE_ATTRIBUTE_ARCHS. For universal builds pass
 # -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" at configure time.

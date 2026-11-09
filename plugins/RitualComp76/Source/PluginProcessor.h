@@ -1,8 +1,10 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_dsp/juce_dsp.h>
 #include <atomic>
 #include "FetCompressor.h"
+#include "Saturation.h"
 #include "ParameterIDs.hpp"
 
 class RitualComp76AudioProcessor : public juce::AudioProcessor
@@ -13,6 +15,7 @@ public:
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
+    void reset() override;
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     using AudioProcessor::processBlock;
@@ -60,10 +63,29 @@ private:
     std::atomic<float>* ratioParam   = nullptr;
     juce::AudioParameterBool* bypassParam = nullptr;
 
+    // Nonlinear core runs 4x oversampled (polyphase IIR, integer latency)
+    static constexpr size_t oversamplingOrder = 2;   // 2^2 = 4x
+    std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
+    int latencySamples = 0;
+    int maxBlockSize = 512;
+    float lastBlockGrDb = 0.0f;
+
+    rc76::InputTransformer transformer;
     FetCompressor compressor;
+    rc76::ClassAStage classA;
+    rc76::DcBlocker dcBlocker;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> inputGain, outputGain, bypassMix;
+
+    // Dry path delayed by the oversampling latency so bypass crossfades stay phase-aligned
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> dryDelay;
     juce::AudioBuffer<float> dryBuffer;
+
+    // All mode: the original's meter pins hard left; show extra GR on the meter only
+    static constexpr float allModeMeterPinDb = 8.0f;
+    static constexpr float allModeClassADrive = 1.8f;
+
+    void processWetOversampled (juce::dsp::AudioBlock<float>& block) noexcept;
 
     std::atomic<float> meterGrDb { 0.0f };
     std::atomic<float> meterOutDbfs { -100.0f };

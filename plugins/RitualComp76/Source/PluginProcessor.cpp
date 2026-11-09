@@ -104,7 +104,29 @@ float RitualComp76AudioProcessor::attenToGain (float attenDb, float stageGainDb)
 //==============================================================================
 void RitualComp76AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    compressor.prepare (sampleRate);
+    const auto numChannels = juce::jlimit (1, rc76::kMaxChannels, getTotalNumInputChannels());
+    maxBlockSize = juce::jmax (1, samplesPerBlock);
+
+    oversampling = std::make_unique<juce::dsp::Oversampling<float>> (
+        (size_t) numChannels, oversamplingOrder,
+        juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
+        true,    // max quality
+        true);   // integer latency
+    oversampling->initProcessing ((size_t) maxBlockSize);
+
+    latencySamples = (int) std::lround (oversampling->getLatencyInSamples());
+    setLatencySamples (latencySamples);
+
+    const auto osRate = sampleRate * (double) oversampling->getOversamplingFactor();
+    transformer.prepare (osRate);
+    compressor.prepare (osRate);
+    dcBlocker.prepare (osRate);
+    classA.setDrive (1.0f);
+
+    dryDelay.setMaximumDelayInSamples (latencySamples + 1);
+    dryDelay.prepare ({ sampleRate, (juce::uint32) maxBlockSize, (juce::uint32) numChannels });
+    dryDelay.setDelay ((float) latencySamples);
+    dryBuffer.setSize (numChannels, maxBlockSize);
 
     inputGain.reset (sampleRate, 0.020);
     outputGain.reset (sampleRate, 0.020);
@@ -113,22 +135,54 @@ void RitualComp76AudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     outputGain.setCurrentAndTargetValue (attenToGain (outputParam->load(), outputMakeupDb));
     bypassMix.setCurrentAndTargetValue (bypassParam->get() ? 1.0f : 0.0f);
 
-    dryBuffer.setSize (juce::jmax (2, getTotalNumInputChannels()), juce::jmax (1, samplesPerBlock));
     meterGrDb.store (0.0f);
     meterOutDbfs.store (-100.0f);
+}
+
+void RitualComp76AudioProcessor::reset()
+{
+    if (oversampling != nullptr)
+        oversampling->reset();
+    transformer.reset();
+    compressor.reset();
+    dcBlocker.reset();
+    dryDelay.reset();
+}
+
+void RitualComp76AudioProcessor::processWetOversampled (juce::dsp::AudioBlock<float>& block) noexcept
+{
+    const auto numChannels = juce::jmin ((int) block.getNumChannels(), rc76::kMaxChannels);
+    const auto numSamples  = (int) block.getNumSamples();
+
+    float* ptrs[rc76::kMaxChannels] {};
+    for (int ch = 0; ch < numChannels; ++ch)
+        ptrs[ch] = block.getChannelPointer ((size_t) ch);
+
+    // Input transformer
+    for (int ch = 0; ch < numChannels; ++ch)
+        for (int n = 0; n < numSamples; ++n)
+            ptrs[ch][n] = transformer.process (ch, ptrs[ch][n]);
+
+    // FET cell + feedback detector (+ FET distortion)
+    lastBlockGrDb = juce::jmax (lastBlockGrDb, compressor.process (ptrs, numChannels, numSamples));
+
+    // Class-A output amplifier, then remove DC from the asymmetric stages
+    for (int ch = 0; ch < numChannels; ++ch)
+        for (int n = 0; n < numSamples; ++n)
+            ptrs[ch][n] = dcBlocker.process (ch, classA.process (ptrs[ch][n]));
 }
 
 void RitualComp76AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
 
-    const auto numSamples  = buffer.getNumSamples();
-    const auto numChannels = juce::jmin (getTotalNumInputChannels(), buffer.getNumChannels());
+    const auto totalSamples = buffer.getNumSamples();
+    const auto numChannels  = juce::jmin (getTotalNumInputChannels(), buffer.getNumChannels(), rc76::kMaxChannels);
 
     for (auto ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
-        buffer.clear (ch, 0, numSamples);
+        buffer.clear (ch, 0, totalSamples);
 
-    if (numSamples == 0 || numChannels == 0)
+    if (totalSamples == 0 || numChannels == 0 || oversampling == nullptr)
         return;
 
     // ---- parameters (once per block) ----
@@ -141,69 +195,77 @@ void RitualComp76AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     settings.releaseStep = juce::jlimit (ParameterRanges::stepMin, ParameterRanges::stepMax, releaseParam->load());
     settings.ratio       = (RatioMode) juce::jlimit (0, (int) RatioMode::All, juce::roundToInt (ratioParam->load()));
     compressor.setSettings (settings);
+    classA.setDrive (settings.ratio == RatioMode::All ? allModeClassADrive : 1.0f);
 
-    const bool fullyBypassed = ! bypassMix.isSmoothing() && bypassMix.getTargetValue() >= 1.0f;
-    if (fullyBypassed)
-    {
-        compressor.reset();
-        inputGain.skip (numSamples);
-        outputGain.skip (numSamples);
-        atomicMax (meterOutDbfs, juce::Decibels::gainToDecibels (buffer.getRMSLevel (0, 0, numSamples), -100.0f));
-        return;
-    }
+    lastBlockGrDb = 0.0f;
+    float* const* data = buffer.getArrayOfWritePointers();
 
-    // ---- keep dry copy for click-free bypass crossfade ----
-    const bool needDry = bypassMix.isSmoothing() || bypassMix.getTargetValue() > 0.0f;
-    if (needDry)
+    // Process in chunks no larger than the prepared block size (oversampler buffers are fixed)
+    for (int offset = 0; offset < totalSamples; offset += maxBlockSize)
     {
-        if (dryBuffer.getNumSamples() < numSamples || dryBuffer.getNumChannels() < numChannels)
-            dryBuffer.setSize (numChannels, numSamples, false, false, true);   // only if host exceeds prepared size
+        const auto numSamples = juce::jmin (maxBlockSize, totalSamples - offset);
+
+        // ---- dry path, delayed to match the oversampling latency ----
         for (int ch = 0; ch < numChannels; ++ch)
-            dryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
-    }
+        {
+            auto* dry = dryBuffer.getWritePointer (ch);
+            for (int n = 0; n < numSamples; ++n)
+            {
+                dryDelay.pushSample (ch, data[ch][offset + n]);
+                dry[n] = dryDelay.popSample (ch);
+            }
+        }
 
-    auto* const* data = buffer.getArrayOfWritePointers();
+        const bool fullyBypassed = ! bypassMix.isSmoothing() && bypassMix.getTargetValue() >= 1.0f;
+        if (fullyBypassed)
+        {
+            for (int ch = 0; ch < numChannels; ++ch)
+                juce::FloatVectorOperations::copy (data[ch] + offset, dryBuffer.getReadPointer (ch), numSamples);
+            inputGain.skip (numSamples);
+            outputGain.skip (numSamples);
+            bypassMix.skip (numSamples);
+            continue;
+        }
 
-    // ---- input attenuator ----
-    for (int n = 0; n < numSamples; ++n)
-    {
-        const auto g = inputGain.getNextValue();
-        for (int ch = 0; ch < numChannels; ++ch)
-            data[ch][n] *= g;
-    }
-
-    // ---- FET cell + feedback detector ----
-    const auto blockGr = compressor.process (data, numChannels, numSamples);
-
-    // ---- output attenuator ----
-    for (int n = 0; n < numSamples; ++n)
-    {
-        const auto g = outputGain.getNextValue();
-        for (int ch = 0; ch < numChannels; ++ch)
-            data[ch][n] *= g;
-    }
-
-    // ---- bypass crossfade ----
-    if (needDry)
-    {
+        // ---- input attenuator ----
         for (int n = 0; n < numSamples; ++n)
         {
+            const auto g = inputGain.getNextValue();
+            for (int ch = 0; ch < numChannels; ++ch)
+                data[ch][offset + n] *= g;
+        }
+
+        // ---- oversampled nonlinear core ----
+        juce::dsp::AudioBlock<float> block (buffer);
+        auto sub = block.getSubsetChannelBlock (0, (size_t) numChannels)
+                        .getSubBlock ((size_t) offset, (size_t) numSamples);
+        auto up = oversampling->processSamplesUp (sub);
+        processWetOversampled (up);
+        oversampling->processSamplesDown (sub);
+
+        // ---- output attenuator + bypass crossfade ----
+        for (int n = 0; n < numSamples; ++n)
+        {
+            const auto g = outputGain.getNextValue();
             const auto b = bypassMix.getNextValue();
             for (int ch = 0; ch < numChannels; ++ch)
-                data[ch][n] = data[ch][n] * (1.0f - b) + dryBuffer.getSample (ch, n) * b;
+            {
+                auto& s = data[ch][offset + n];
+                s = s * g * (1.0f - b) + dryBuffer.getSample (ch, n) * b;
+            }
         }
     }
-    else
-    {
-        bypassMix.skip (numSamples);
-    }
+
+    if (bypassMix.getTargetValue() >= 1.0f && ! bypassMix.isSmoothing())
+        compressor.reset();   // come back from bypass without stale gain reduction
 
     // ---- meters ----
     float rms = 0.0f;
     for (int ch = 0; ch < numChannels; ++ch)
-        rms = juce::jmax (rms, buffer.getRMSLevel (ch, 0, numSamples));
+        rms = juce::jmax (rms, buffer.getRMSLevel (ch, 0, totalSamples));
 
-    atomicMax (meterGrDb, blockGr);
+    const auto shownGr = lastBlockGrDb + (compressor.isAllMode() && lastBlockGrDb > 0.5f ? allModeMeterPinDb : 0.0f);
+    atomicMax (meterGrDb, shownGr);
     atomicMax (meterOutDbfs, juce::Decibels::gainToDecibels (rms, -100.0f));
 }
 

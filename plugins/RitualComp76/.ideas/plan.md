@@ -14,14 +14,14 @@
 - [x] GR + VU meter atomics exposed to editor
 
 ### Phase 2.1.2: Character & Optimization
-- [ ] 4× `juce::dsp::Oversampling` around nonlinear stages; report latency via `setLatencySamples`
-- [ ] Input transformer saturation + LF/HF shaping
-- [ ] FET cell GR-dependent asymmetric distortion
-- [ ] Class-A output stage soft clipper
-- [ ] Program-dependent two-stage release
-- [ ] `All` (all-buttons-in) mode: variable ratio, knee overshoot, timing shift, extra distortion, meter pin
-- [ ] Real-time safety: no allocations in `processBlock`, coefficient recompute per block, denormal guard (`ScopedNoDenormals`)
-- [ ] CPU check: target < 3% single instance @ 48 kHz, 4× OS
+- [x] 4× `juce::dsp::Oversampling` around nonlinear stages; report latency via `setLatencySamples`
+- [x] Input transformer saturation + LF/HF shaping
+- [x] FET cell GR-dependent asymmetric distortion
+- [x] Class-A output stage soft clipper
+- [x] Program-dependent two-stage release
+- [x] `All` (all-buttons-in) mode: variable ratio, knee overshoot, timing shift, extra distortion, meter pin
+- [x] Real-time safety: no allocations in `processBlock`, coefficient recompute per block, denormal guard (`ScopedNoDenormals`)
+- [x] CPU check: target < 3% single instance @ 48 kHz, 4× OS (measured 1.2%)
 
 ### Phase 2.1.3: Polish
 - [ ] Click-free ratio switching (≈10 ms crossfade), bypass crossfade with latency-matched dry path

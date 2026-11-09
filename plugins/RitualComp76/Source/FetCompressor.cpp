@@ -4,7 +4,12 @@
 
 namespace
 {
-    constexpr float minLevel = 1.0e-9f;   // -180 dBFS floor for the detector
+    constexpr float minLevel = 1.0e-9f;      // -180 dBFS floor for the detector
+    constexpr float fetAmountNormal = 0.04f;
+    constexpr float fetAmountAll    = 0.12f;
+    constexpr float fetMaxGrDb      = 30.0f;
+    constexpr float sustainSeconds  = 0.5f;
+    constexpr float allBumpSeconds  = 0.04f;
 
     inline float onePoleCoeff (float seconds, double fs) noexcept
     {
@@ -29,14 +34,12 @@ FetCompressor::RatioCurve FetCompressor::curveFor (RatioMode mode) noexcept
     // Threshold rises slightly with ratio and the knee hardens, as on the original unit.
     switch (mode)
     {
-        case RatioMode::Out: return { 1.0f,  0.0f, 0.0f, false };
+        case RatioMode::Out: return { 1.0f,   0.0f, 0.0f, false };
         case RatioMode::R4:  return { 4.0f, -10.0f, 6.0f, true };
         case RatioMode::R8:  return { 8.0f,  -8.0f, 4.0f, true };
         case RatioMode::R12: return { 12.0f, -7.0f, 3.0f, true };
         case RatioMode::R20: return { 20.0f, -6.0f, 2.0f, true };
-        // Phase 4.1.2 replaces this with the full all-buttons-in model
-        // (level-dependent ratio, knee overshoot, timing shift, extra distortion).
-        case RatioMode::All: return { 20.0f, -8.0f, 2.0f, true };
+        case RatioMode::All: return { 12.0f, -8.0f, 2.0f, true };   // base ratio; grows with level
     }
     return { 4.0f, -10.0f, 6.0f, true };
 }
@@ -44,6 +47,8 @@ FetCompressor::RatioCurve FetCompressor::curveFor (RatioMode mode) noexcept
 void FetCompressor::prepare (double newSampleRate)
 {
     sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
+    sustainCoeff = onePoleCoeff (sustainSeconds, sampleRate);
+    allBumpCoeff = onePoleCoeff (allBumpSeconds, sampleRate);
     reset();
     setSettings ({});
 }
@@ -51,18 +56,27 @@ void FetCompressor::prepare (double newSampleRate)
 void FetCompressor::reset()
 {
     grDb = 0.0f;
+    sustainDb = 0.0f;
+    grSlow = 0.0f;
+    appliedGrDb = 0.0f;
 }
 
 void FetCompressor::setSettings (const Settings& s)
 {
-    attackCoeff  = onePoleCoeff (attackSecondsFromStep (s.attackStep), sampleRate);
-    releaseCoeff = onePoleCoeff (releaseSecondsFromStep (s.releaseStep), sampleRate);
+    allMode = s.ratio == RatioMode::All;
     curve = curveFor (s.ratio);
+
+    const auto attackSec  = attackSecondsFromStep (s.attackStep)  * (allMode ? allAttackScale  : 1.0f);
+    const auto releaseSec = releaseSecondsFromStep (s.releaseStep) * (allMode ? allReleaseScale : 1.0f);
+
+    attackCoeff      = onePoleCoeff (attackSec, sampleRate);
+    releaseFastCoeff = onePoleCoeff (releaseSec, sampleRate);
+    releaseSlowCoeff = onePoleCoeff (releaseSec * slowReleaseFactor, sampleRate);
+    fetAmount        = curve.active ? (allMode ? fetAmountAll : fetAmountNormal) : 0.0f;
 }
 
 float FetCompressor::process (float* const* channels, int numChannels, int numSamples) noexcept
 {
-    const auto ratioMinusOne = curve.ratio - 1.0f;
     const auto halfKnee = 0.5f * curve.kneeDb;
     float blockMaxGr = grDb;
 
@@ -70,6 +84,8 @@ float FetCompressor::process (float* const* channels, int numChannels, int numSa
     {
         float error;
         float loopGain = 1.0f;
+        bool attacking = false;
+        bool compressing = false;
 
         if (curve.active)
         {
@@ -82,31 +98,92 @@ float FetCompressor::process (float* const* channels, int numChannels, int numSa
             const auto levelDb = 20.0f * std::log10 (juce::jmax (peak, minLevel));
             const auto d = levelDb - grDb - curve.thresholdDb;
 
-            float over, slope;
-            if (d <= -halfKnee)      { over = 0.0f; slope = 0.0f; }
-            else if (d >= halfKnee)  { over = d;    slope = 1.0f; }
+            float over, kneeSlope;
+            if (d <= -halfKnee)      { over = 0.0f; kneeSlope = 0.0f; }
+            else if (d >= halfKnee)  { over = d;    kneeSlope = 1.0f; }
             else
             {
                 const auto x = d + halfKnee;
-                over  = x * x / (2.0f * curve.kneeDb);
-                slope = x / curve.kneeDb;
+                over      = x * x / (2.0f * curve.kneeDb);
+                kneeSlope = x / curve.kneeDb;
             }
 
-            error = ratioMinusOne * over - grDb;
-            loopGain = 1.0f + ratioMinusOne * slope;
+            // f(over) = (R - 1) * over, R level-dependent in All mode
+            float target, targetSlope;
+            if (allMode)
+            {
+                const auto r = curve.ratio + allRatioSlope * over;
+                if (r < allRatioMax)
+                {
+                    target      = (r - 1.0f) * over;
+                    targetSlope = (r - 1.0f) + allRatioSlope * over;
+                }
+                else
+                {
+                    target      = (allRatioMax - 1.0f) * over;
+                    targetSlope = allRatioMax - 1.0f;
+                }
+            }
+            else
+            {
+                target      = (curve.ratio - 1.0f) * over;
+                targetSlope = curve.ratio - 1.0f;
+            }
+
+            compressing = over > 0.0f;
+            attacking = target > grDb;
+
+            error = target - grDb;
+            loopGain = 1.0f + targetSlope * kneeSlope;
         }
         else
         {
             error = -grDb;   // ratio "Out": let any remaining GR recover
         }
 
-        const auto coeff = (error > 0.0f ? attackCoeff : releaseCoeff) / loopGain;
-        grDb = juce::jmax (0.0f, grDb + coeff * error);
-        blockMaxGr = juce::jmax (blockMaxGr, grDb);
+        float coeff;
+        if (attacking)
+        {
+            coeff = attackCoeff;
+        }
+        else
+        {
+            // Program-dependent release: sustained GR pushes towards the slow stage
+            const auto w = juce::jlimit (0.0f, 1.0f, sustainDb / sustainFullDb);
+            coeff = releaseFastCoeff + w * (releaseSlowCoeff - releaseFastCoeff);
+        }
 
-        const auto gain = juce::Decibels::decibelsToGain (-grDb, -200.0f);
+        grDb = juce::jmax (0.0f, grDb + (coeff / loopGain) * error);
+        // Sustain builds up slowly only while the signal is actually being compressed,
+        // and never exceeds the current GR, so a release cannot slow itself down.
+        if (compressing)
+            sustainDb += sustainCoeff * (grDb - sustainDb);
+        sustainDb = juce::jmin (sustainDb, grDb);
+
+        // All mode "bump": applied GR overshoots when GR jumps above its recent average,
+        // then settles back. Kept outside the feedback loop so the loop can't cancel it.
+        float appliedGr = grDb;
+        if (allMode)
+        {
+            grSlow += allBumpCoeff * (grDb - grSlow);
+            appliedGr += allOvershoot * juce::jmax (0.0f, grDb - grSlow);
+        }
+        else
+        {
+            grSlow = grDb;
+        }
+        appliedGrDb = appliedGr;
+        blockMaxGr = juce::jmax (blockMaxGr, appliedGr);
+
+        const auto gain = juce::Decibels::decibelsToGain (-appliedGr, -200.0f);
+        const auto h = fetAmount * juce::jmin (appliedGr, fetMaxGrDb) * 0.1f;
+
         for (int ch = 0; ch < numChannels; ++ch)
-            channels[ch][n] *= gain;
+        {
+            const auto y = channels[ch][n] * gain;
+            const auto yc = juce::jlimit (-2.0f, 2.0f, y);
+            channels[ch][n] = y + h * yc * yc;   // FET channel nonlinearity: even harmonics
+        }
     }
 
     return blockMaxGr;
