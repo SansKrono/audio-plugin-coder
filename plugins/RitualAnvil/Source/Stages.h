@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_dsp/juce_dsp.h>
 #include "Biquad.h"
 #include "BandSplitter3.h"
 #include "ParameterIDs.hpp"
@@ -260,12 +261,12 @@ namespace anvil
                 float lvl = std::abs (ch[0][i]);
                 if (numCh > 1) lvl = std::max (lvl, std::abs (ch[1][i]));
 
-                const float target = std::max (0.0f, (gainToDb (lvl) - fixed::punchThresholdDb) * slope);
+                const float target = lvl > thresholdGain ? (gainToDb (lvl) - fixed::punchThresholdDb) * slope : 0.0f;
                 grDb = target + (target > grDb ? attCoef : relCoef) * (grDb - target);
 
                 if (b > 1.0e-6f)
                 {
-                    const float wetGain = dbToGain (-grDb);
+                    const float wetGain = grDb > 1.0e-4f ? dbToGain (-grDb) : 1.0f;
                     const float mix = (1.0f - b) + b * wetGain;   // dry·(1−b) + wet·b, wet = x·wetGain
                     for (int c = 0; c < numCh; ++c)
                         ch[c][i] *= mix;
@@ -278,33 +279,59 @@ namespace anvil
     private:
         double fs = 48000.0;
         float attCoef = 0, relCoef = 0, grDb = 0;
+        const float thresholdGain = std::pow (10.0f, fixed::punchThresholdDb / 20.0f);
         Linear blend;
     };
 
     //==========================================================================
-    // 05 Heat: split 200 Hz / 5 kHz → hard / soft (tanh) / tube (asym) → sum
-    //    Phase 4.1.1: not oversampled yet (4× OS lands in 4.1.2).
+    // 05 Heat: 4× oversampled (FIR half-band, linear phase, integer latency).
+    //    At the OS rate: split 200 Hz / 5 kHz → hard / soft (tanh) / tube (asym) → sum.
+    //    The OS path always runs so latency and phase never change with Drive.
     //==========================================================================
     class HeatStage
     {
     public:
-        void prepare (double sampleRate, int maxBlock)
+        static constexpr size_t osOrder = 2;   // 2^2 = 4×
+
+        static std::unique_ptr<juce::dsp::Oversampling<float>> makeOversampler (int numChannels)
         {
-            fs = sampleRate;
-            splitter.prepare (fs, maxBlock, fixed::heatSplitLow, fixed::heatSplitHigh);
-            dcBlock.setCutoff (fs, 5.0);
-            driveDb.reset (fs, 0.02);
+            return std::make_unique<juce::dsp::Oversampling<float>> (
+                (size_t) numChannels, osOrder,
+                juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple,
+                true,    // max quality
+                true);   // integer latency
+        }
+
+        /** Latency in base-rate samples (independent of sample rate). */
+        static int latencySamples()
+        {
+            auto probe = makeOversampler (1);
+            probe->initProcessing (1);
+            return (int) std::lround (probe->getLatencyInSamples());
+        }
+
+        void prepare (double sampleRate, int maxBlock, int numChannels)
+        {
+            os = makeOversampler (juce::jlimit (1, 2, numChannels));
+            os->initProcessing ((size_t) juce::jmax (1, maxBlock));
+            osRate = sampleRate * (double) os->getOversamplingFactor();
+
+            splitter.prepare (osRate, maxBlock * (int) os->getOversamplingFactor(), fixed::heatSplitLow, fixed::heatSplitHigh);
+            dcBlock.setCutoff (osRate, 5.0);
+            driveDb.reset (osRate, 0.02);
             driveDb.setCurrentAndTargetValue (0.0f);
+            gainsDirty = true;
             reset();
         }
 
         void reset()
         {
+            if (os != nullptr) os->reset();
             splitter.reset();
             dcBlock.reset();
         }
 
-        void snap() { snapTo (driveDb); }
+        void snap() { snapTo (driveDb); gainsDirty = true; }
 
         void setTargets (float db) { driveDb.setTargetValue (std::clamp (db, 0.0f, 20.0f)); }
 
@@ -314,17 +341,27 @@ namespace anvil
 
         void process (float* const* ch, int numCh, int n) noexcept
         {
+            juce::dsp::AudioBlock<float> block (ch, (size_t) numCh, (size_t) n);
+            auto up = os->processSamplesUp (block);
+            const auto upN = (int) up.getNumSamples();
+            float* upCh[2] { up.getChannelPointer (0), numCh > 1 ? up.getChannelPointer (1) : nullptr };
+
             float lo = 0, mi = 0, hi = 0;
-            for (int i = 0; i < n; ++i)
+            for (int i = 0; i < upN; ++i)
             {
+                const bool moving = driveDb.isSmoothing();
                 const float d = driveDb.getNextValue();
-                const float amount = std::clamp (d / 3.0f, 0.0f, 1.0f);   // fade the shapers in over the first 3 dB
-                const float g = dbToGain (d);
-                const float comp = dbToGain (-0.5f * d);                   // rough output compensation (tuned in 4.1.3)
+                if (moving || gainsDirty)   // gains only change while Drive moves
+                {
+                    gainsDirty = false;
+                    amount = std::clamp (d / 3.0f, 0.0f, 1.0f);   // fade the shapers in over the first 3 dB
+                    g = dbToGain (d);
+                    comp = dbToGain (-0.5f * d);                  // rough output compensation (tuned in 4.1.3)
+                }
 
                 for (int c = 0; c < numCh; ++c)
                 {
-                    splitter.process (c, ch[c][i], lo, mi, hi);
+                    splitter.process (c, upCh[c][i], lo, mi, hi);
                     const float dry = lo + mi + hi;
                     float y = dry;
                     if (amount > 0.0f)
@@ -332,13 +369,18 @@ namespace anvil
                         const float shaped = (hardClip (lo * g) + softClip (mi * g) + tube (hi * g)) * comp;
                         y = dry + amount * (shaped - dry);
                     }
-                    ch[c][i] = dcBlock.process (c, y);
+                    upCh[c][i] = dcBlock.process (c, y);
                 }
             }
+
+            os->processSamplesDown (block);
         }
 
     private:
-        double fs = 48000.0;
+        double osRate = 192000.0;
+        bool gainsDirty = true;
+        float amount = 0.0f, g = 1.0f, comp = 1.0f;
+        std::unique_ptr<juce::dsp::Oversampling<float>> os;
         BandSplitter3 splitter;
         OnePoleHP dcBlock;
         Linear driveDb;
@@ -383,50 +425,5 @@ namespace anvil
     private:
         OnePoleHP sideSplit;
         Linear width;
-    };
-
-    //==========================================================================
-    // 07 Ceiling: Phase 4.1.1 placeholder — instant-attack sample-peak limiter,
-    //    150 ms release. Replaced by the lookahead true-peak limiter in 4.1.2.
-    //==========================================================================
-    class PeakLimiter
-    {
-    public:
-        void prepare (double sampleRate)
-        {
-            relCoef = msToCoef (sampleRate, fixed::limiterReleaseMs);
-            ceiling.reset (sampleRate, 0.02);
-            ceiling.setCurrentAndTargetValue (dbToGain (-0.3f));
-            reset();
-        }
-
-        void reset() { gain = 1.0f; }
-        void snap() { snapTo (ceiling); }
-
-        void setTargets (float ceilingDb) { ceiling.setTargetValue (dbToGain (ceilingDb)); }
-
-        /** Returns the max gain reduction (dB, >= 0) in this call. */
-        float process (float* const* ch, int numCh, int n) noexcept
-        {
-            float minGain = 1.0f;
-            for (int i = 0; i < n; ++i)
-            {
-                const float ceil = ceiling.getNextValue();
-                float pk = std::abs (ch[0][i]);
-                if (numCh > 1) pk = std::max (pk, std::abs (ch[1][i]));
-
-                const float target = pk > ceil ? ceil / pk : 1.0f;
-                gain = target < gain ? target : target + relCoef * (gain - target);
-
-                for (int c = 0; c < numCh; ++c)
-                    ch[c][i] *= gain;
-                minGain = std::min (minGain, gain);
-            }
-            return -gainToDb (minGain);
-        }
-
-    private:
-        float relCoef = 0.0f, gain = 1.0f;
-        Linear ceiling;
     };
 }

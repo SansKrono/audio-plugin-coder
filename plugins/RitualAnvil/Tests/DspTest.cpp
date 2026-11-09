@@ -1,4 +1,4 @@
-// Offline checks for RitualAnvil DSP (Phase 4.1.1).
+// Offline checks for RitualAnvil DSP (Phases 4.1.1 + 4.1.2).
 // Build: cmake --build build --target RitualAnvil_DspTest
 // Run:   ./build/plugins/RitualAnvil/RitualAnvil_DspTest_artefacts/Release/RitualAnvil_DspTest
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -6,10 +6,30 @@
 #include "MacroMapper.h"
 #include "BandSplitter3.h"
 
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 #include <memory>
+#include <new>
 #include <vector>
+
+// Counts heap allocations while `trackAllocs` is set (real-time safety check)
+static std::atomic<bool> trackAllocs { false };
+static std::atomic<long> allocCount { 0 };
+void* operator new (std::size_t n)
+{
+    if (trackAllocs.load (std::memory_order_relaxed)) allocCount.fetch_add (1, std::memory_order_relaxed);
+    if (auto* p = std::malloc (n == 0 ? 1 : n)) return p;
+    throw std::bad_alloc();
+}
+void* operator new[] (std::size_t n) { return operator new (n); }
+void operator delete (void* p) noexcept { std::free (p); }
+void operator delete[] (void* p) noexcept { std::free (p); }
+void operator delete (void* p, std::size_t) noexcept { std::free (p); }
+void operator delete[] (void* p, std::size_t) noexcept { std::free (p); }
 
 namespace
 {
@@ -37,6 +57,32 @@ namespace
     }
 
     double toDb (double g) { return 20.0 * std::log10 (std::max (g, 1.0e-12)); }
+
+    /** Reference true peak: 16x band-limited interpolation (Kaiser-windowed sinc, ±64 taps). */
+    double truePeak (const Vec& x, size_t start)
+    {
+        constexpr int os = 16, half = 64;
+        double pk = 0.0;
+        const auto I0 = [] (double v) { double s = 1, t = 1; for (int m = 1; m < 30; ++m) { t *= (v / (2.0 * m)) * (v / (2.0 * m)); s += t; } return s; };
+        for (size_t n = std::max (start, (size_t) half); n + half < x.size(); ++n)
+        {
+            pk = std::max (pk, (double) std::abs (x[n]));
+            for (int k = 1; k < os; ++k)
+            {
+                const double frac = (double) k / os;
+                double v = 0.0;
+                for (int j = -half + 1; j <= half; ++j)
+                {
+                    const double u = j - frac;
+                    const double r = u / (half + 0.5);
+                    const double w = I0 (9.0 * std::sqrt (std::max (0.0, 1.0 - r * r))) / I0 (9.0);
+                    v += x[(size_t) ((long) n + j)] * std::sin (juce::MathConstants<double>::pi * u) / (juce::MathConstants<double>::pi * u) * w;
+                }
+                pk = std::max (pk, std::abs (v));
+            }
+        }
+        return toDb (pk);
+    }
 
     //--------------------------------------------------------------------------
     struct Rig
@@ -206,20 +252,151 @@ namespace
 
     void testLimiter()
     {
-        std::puts ("\n-- Placeholder limiter holds the ceiling (sample peak) --");
-        for (float ceil : { -0.1f, -0.3f, -1.0f })
+        std::puts ("\n-- True-peak limiter holds the ceiling (reference 16x true peak) --");
+        struct Case { double freq; double phase; float ceil; const char* what; };
+        const Case cases[] = {
+            { 100.0,   0.0,  -0.3f, "100 Hz, ceiling -0.3" },
+            { 997.0,   0.0,  -0.1f, "997 Hz, ceiling -0.1" },
+            { 5000.0,  0.0,  -1.0f, "5 kHz, ceiling -1.0" },
+            { 12000.0, 0.785398, -0.3f, "fs/4 at 45 deg (classic ISP), -0.3" },
+            { 15000.0, 0.3,  -0.3f, "15 kHz, ceiling -0.3" },
+            { 19000.0, 1.1,  -0.3f, "19 kHz, ceiling -0.3" },
+        };
+        for (const auto& c : cases)
         {
             Rig rig;
             rig.set (ParameterIDs::inputGain, 12.0f);
-            rig.set (ParameterIDs::ceiling, ceil);
+            rig.set (ParameterIDs::hpf, 20.0f);
+            rig.set (ParameterIDs::ceiling, c.ceil);
             rig.prepare();
-            const auto x = sine (100.0, 0.9f, (size_t) fs);
+            const auto len = (size_t) (fs * 0.5);
+            Vec x (len);
+            for (size_t i = 0; i < len; ++i)
+                x[i] = 0.9f * (float) std::sin (juce::MathConstants<double>::twoPi * c.freq * (double) i / fs + c.phase);
             const auto [l, r] = rig.run (x, x);
-            float pk = 0.0f;
-            for (size_t i = l.size() / 4; i < l.size(); ++i) pk = std::max ({ pk, std::abs (l[i]), std::abs (r[i]) });
-            char label[64]; std::snprintf (label, sizeof label, "ceiling %.1f dB: output peak (dBFS)", ceil);
-            atMost (label, toDb (pk), ceil + 0.01);
+            char label[96]; std::snprintf (label, sizeof label, "%s: true peak (dBTP)", c.what);
+            atMost (label, std::max (truePeak (l, len / 2), truePeak (r, len / 2)), c.ceil + 0.05);
         }
+
+        // Drum-like transients: noise bursts with sharp attacks
+        Rig rig;
+        rig.set (ParameterIDs::inputGain, 12.0f);
+        rig.set (ParameterIDs::mixReady, 100.0f);
+        rig.prepare();
+        juce::Random rnd (7);
+        Vec l ((size_t) fs / 2), r (l.size());
+        for (size_t i = 0; i < l.size(); ++i)
+        {
+            const float env = std::exp (-(float) (i % 6000) / 600.0f);
+            l[i] = env * (rnd.nextFloat() * 2.0f - 1.0f);
+            r[i] = env * (rnd.nextFloat() * 2.0f - 1.0f);
+        }
+        const auto [ol, orr] = rig.run (l, r);
+        atMost ("noise bursts, mix 100 %: true peak (dBTP)", std::max (truePeak (ol, 4096), truePeak (orr, 4096)), -0.3 + 0.05);
+    }
+
+    void testHeatAliasing()
+    {
+        std::puts ("\n-- Heat is oversampled: aliases of a 9 kHz tone stay low --");
+        Rig rig;
+        rig.set (ParameterIDs::heat, 20.0f);
+        rig.set (ParameterIDs::ceiling, -0.1f);
+        rig.prepare();
+        const auto len = (size_t) fs;
+        const auto x = sine (9000.0, 0.25f, len);
+        const auto [l, r] = rig.run (x, x);
+        const double fund = toneMag (l, 9000.0, len / 2);
+        // tube shaper harmonics 27 k / 36 k / 45 k fold to 21 k / 12 k / 3 k without oversampling
+        for (double alias : { 3000.0, 12000.0, 21000.0 })
+        {
+            char label[64]; std::snprintf (label, sizeof label, "alias @ %.0f Hz (dBc)", alias);
+            atMost (label, toDb (toneMag (l, alias, len / 2) / fund), -60.0);
+        }
+        const double h2 = toDb (toneMag (l, 18000.0, len / 2) / fund);
+        check (h2 > -60.0, "heat makes real harmonics (2nd @ 18 kHz, dBc)", h2, -60.0, 0.0);
+    }
+
+    void testLatency()
+    {
+        std::puts ("\n-- Latency: reported == measured, constant over params --");
+        for (double rate : { 44100.0, 48000.0, 96000.0 })
+        {
+            RitualAnvilAudioProcessor proc;
+            proc.prepareToPlay (rate, 512);
+            const int lat = proc.getLatencySamples();
+            char label[64]; std::snprintf (label, sizeof label, "%.0f Hz: latency == OS + lookahead", rate);
+            near (label, lat, RitualAnvilAudioProcessor::computeLatency (rate), 0.0);
+        }
+
+        Rig rig;
+        rig.set (ParameterIDs::hpf, 20.0f);
+        rig.prepare();
+        const int reported = rig.proc->getLatencySamples();
+        Vec imp (8192, 0.0f); imp[100] = 0.5f;
+        const auto [l, r] = rig.run (imp, imp);
+        size_t argmax = 0;
+        for (size_t i = 0; i < l.size(); ++i) if (std::abs (l[i]) > std::abs (l[argmax])) argmax = i;
+        // Pure delay is compensated; the LR crossover allpasses (Transient 300 Hz / 20 kHz, Heat 200 Hz / 5 kHz)
+        // add a few samples of dispersive group delay on top, like any minimum-phase EQ.
+        const double extra = (double) argmax - 100.0 - reported;
+        check (extra >= 0.0 && extra <= 4.0, "chain impulse peak: samples after reported latency (0..4)", extra, 0.0, 4.0);
+
+        anvil::TruePeakLimiter lim;
+        lim.prepare (fs, 150.0f);
+        lim.setTargets (-0.3f); lim.snap();
+        Vec li (1024, 0.0f), ri (1024, 0.0f); li[10] = ri[10] = 0.5f;
+        float* lp[] = { li.data(), ri.data() };
+        lim.process (lp, 2, 1024);
+        size_t lmax = 0;
+        for (size_t i = 0; i < li.size(); ++i) if (std::abs (li[i]) > std::abs (li[lmax])) lmax = i;
+        near ("limiter alone: impulse delay == its latency", (double) lmax - 10.0, lim.getLatency(), 0.0);
+        near ("limiter alone: below ceiling passes at unity", li[lmax], 0.5, 1.0e-6);
+
+        Rig hot; hot.set (ParameterIDs::mixReady, 100.0f); hot.set (ParameterIDs::heat, 20.0f); hot.prepare();
+        near ("latency unchanged with heat/macro maxed", hot.proc->getLatencySamples(), reported, 0.0);
+    }
+
+    void testRealtimeSafety()
+    {
+        std::puts ("\n-- Real-time safety + CPU --");
+        Rig rig;
+        rig.set (ParameterIDs::mixReady, 80.0f);
+        rig.set (ParameterIDs::heat, 6.0f);
+        rig.prepare (512);
+        const auto x = sine (220.0, 0.5f, (size_t) fs);
+        rig.run (x, x);   // warm-up
+
+        // process with parameter moves in between blocks, counting allocations
+        Vec l = x, r = x;
+        juce::MidiBuffer midi;
+        float* chans[] = { nullptr, nullptr };
+        allocCount = 0;
+        for (size_t off = 0; off + 512 <= l.size(); off += 512)
+        {
+            rig.set (ParameterIDs::mixReady, (float) (off % 100));   // host automation (message thread side, done before tracking)
+            chans[0] = l.data() + off; chans[1] = r.data() + off;
+            juce::AudioBuffer<float> buf (chans, 2, 512);
+            trackAllocs = true;
+            rig.proc->processBlock (buf, midi);
+            trackAllocs = false;
+        }
+        near ("heap allocations inside processBlock", (double) allocCount.load(), 0.0, 0.0);
+
+        // CPU: 10 s of stereo audio, everything engaged
+        Rig cpu;
+        cpu.set (ParameterIDs::mixReady, 100.0f);
+        cpu.set (ParameterIDs::heat, 10.0f);
+        cpu.set (ParameterIDs::punch, 60.0f);
+        cpu.prepare (512);
+        const auto secs = 10.0;
+        juce::Random rnd (3);
+        Vec nl ((size_t) (fs * secs)), nr (nl.size());
+        for (size_t i = 0; i < nl.size(); ++i) { nl[i] = (rnd.nextFloat() - 0.5f) * 0.6f; nr[i] = (rnd.nextFloat() - 0.5f) * 0.6f; }
+        // process CPU time (not wall clock): robust to other load on the machine
+        const auto c0 = std::clock();
+        cpu.run (nl, nr, 512);
+        const double elapsed = (double) (std::clock() - c0) / CLOCKS_PER_SEC;
+        atMost ("CPU: fraction of real time (single core, %)", 100.0 * elapsed / secs, 5.0);
     }
 
     void testWidth()
@@ -278,7 +455,7 @@ namespace
         bool finite = true; float pk = 0.0f;
         for (size_t i = 0; i < l.size(); ++i) { finite &= std::isfinite (l[i]) && std::isfinite (r[i]); pk = std::max ({ pk, std::abs (l[i]), std::abs (r[i]) }); }
         check (finite, "all params max: output finite", finite, 1, 0);
-        atMost ("all params max: peak (dBFS)", toDb (pk), -0.1 + 0.01);
+        atMost ("all params max: true peak (dBTP)", truePeak (l, l.size() / 2), -0.1 + 0.05);
 
         Rig silent; silent.prepare();
         const auto [sl, sr] = silent.run (Vec ((size_t) fs / 4, 0.0f), Vec ((size_t) fs / 4, 0.0f));
@@ -289,16 +466,17 @@ namespace
 
     void testBypass()
     {
-        std::puts ("\n-- Bypass passes input untouched --");
+        std::puts ("\n-- Bypass passes input untouched (latency-aligned) --");
         Rig rig;
         rig.set (ParameterIDs::mixReady, 100.0f);
         rig.set (ParameterIDs::bypass, 1.0f);
         rig.prepare();
+        const auto lat = (size_t) rig.proc->getLatencySamples();
         const auto x = sine (440.0, 0.5f, 48000);
         const auto [l, r] = rig.run (x, x);
         double d = 0;
-        for (size_t i = 0; i < x.size(); ++i) d = std::max (d, (double) std::abs (l[i] - x[i]));
-        atMost ("bypassed: max |out - in|", d, 0.0);
+        for (size_t i = lat; i < x.size(); ++i) d = std::max (d, (double) std::abs (l[i] - x[i - lat]));
+        atMost ("bypassed: max |out[n] - in[n - latency]|", d, 0.0);
     }
 
     void testState()
@@ -323,11 +501,14 @@ int main()
     testToneEQ();
     testMacroInChain();
     testLimiter();
+    testHeatAliasing();
+    testLatency();
     testWidth();
     testBlockSizeInvariance();
     testExtremesFinite();
     testBypass();
     testState();
+    testRealtimeSafety();
 
     std::printf ("\n%s: %d failure(s)\n", failures == 0 ? "ALL PASS" : "FAILED", failures);
     return failures == 0 ? 0 : 1;

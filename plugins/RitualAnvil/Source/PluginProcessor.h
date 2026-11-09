@@ -7,6 +7,7 @@
 #include "ParameterIDs.hpp"
 #include "MacroMapper.h"
 #include "Stages.h"
+#include "TruePeakLimiter.h"
 
 class RitualAnvilAudioProcessor : public juce::AudioProcessor
 {
@@ -70,12 +71,20 @@ private:
     anvil::PunchStage     punch;
     anvil::HeatStage      heat;
     anvil::WidthStage     width;
-    anvil::PeakLimiter    limiter;
+    anvil::TruePeakLimiter limiter;
 
-    // Bypass crossfade (no latency in 4.1.1, dry is the untouched input)
+    // Bypass crossfade; dry path delayed by the plugin latency so it stays phase-aligned
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> bypassMix;
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> dryDelay;
     juce::AudioBuffer<float> dryBuffer;
     int maxBlockSize = 512;
+    int latencySamples = 0;
+
+public:
+    /** Total latency: Heat oversampling + limiter lookahead (constant for a given sample rate). */
+    static int computeLatency (double sampleRate) { return anvil::HeatStage::latencySamples() + anvil::TruePeakLimiter::latencySamples (sampleRate); }
+
+private:
 
     std::array<std::atomic<float>, anvil::NumSliderParams> effective {};
     std::atomic<float> meterIn { 0.0f }, meterOut { 0.0f };    // linear peak

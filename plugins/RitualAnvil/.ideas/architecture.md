@@ -4,7 +4,7 @@ Re-implementation of the Ritual Suite POC drum-bus chain as dedicated C++ classe
 
 ## Core Components
 
-> **As built (4.1.1):** stage classes live together in `Source/Stages.h` (InputStage, TransientStage, ToneEQ, PunchStage, HeatStage, WidthStage, PeakLimiter); filters in `Biquad.h`, split in `BandSplitter3.h`. `TruePeakLimiter` replaces `PeakLimiter` in 4.1.2.
+> **As built (4.1.1):** stage classes live together in `Source/Stages.h` (InputStage, TransientStage, ToneEQ, PunchStage, HeatStage, WidthStage, PeakLimiter); filters in `Biquad.h`, split in `BandSplitter3.h`. `TruePeakLimiter.h` (4.1.2) replaced the placeholder `PeakLimiter`.
 
 | Class (Source/) | Role | Built on |
 | :--- | :--- | :--- |
@@ -17,7 +17,7 @@ Re-implementation of the Ritual Suite POC drum-bus chain as dedicated C++ classe
 | `PunchStage.h` | Parallel comp (−20 dB, 8:1, 3/150 ms) + wet blend 0–0.5 | `dsp::Compressor`, dry copy prealloc |
 | `HeatStage.h` | 4× oversample → 3-band split @ 200 Hz / 5 kHz → hard / tanh / asym tube → sum → downsample | `dsp::Oversampling` (FIR halfband, linear phase), `BandSplitter3` |
 | `WidthStage` | M/S: side split at 200 Hz (1-pole complementary); width applied to side above 200 Hz only, side below untouched — width 100 % is an exact identity (POC HPF'd the side even at 100 %) | `OnePoleHP` on S |
-| `TruePeakLimiter.h` | Lookahead (~1.5 ms) brickwall, 4× OS peak detection, release 150 ms | delay line + gain smoother |
+| `TruePeakLimiter.h` | 1.5 ms lookahead brickwall; 4× windowed-sinc + parabolic true-peak detection; instant-attack/150 ms release → sliding min (±8-sample guard) → moving average; latency W + 16 + 8 | ring buffers, monotonic queue |
 | `AnvilProcessor` (`PluginProcessor`) | Owns stages, reads params once per block, runs `MacroMapper`, pushes targets, metering atomics, latency, bypass crossfade | `AudioProcessor` |
 | `PluginEditor` | WebView host + relays + meter event emitter | `WebBrowserComponent`, `WebSliderRelay`, `WebToggleButtonRelay` |
 

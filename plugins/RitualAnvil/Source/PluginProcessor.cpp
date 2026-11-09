@@ -72,6 +72,10 @@ RitualAnvilAudioProcessor::RitualAnvilAudioProcessor()
     }
     bypassParam = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParameterIDs::bypass));
     jassert (bypassParam != nullptr);
+
+    // Report latency from construction: some hosts read it before prepareToPlay()
+    latencySamples = computeLatency (44100.0);
+    setLatencySamples (latencySamples);
 }
 
 bool RitualAnvilAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -92,15 +96,20 @@ void RitualAnvilAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     transient.prepare (sampleRate, maxBlockSize);
     toneEq.prepare (sampleRate);
     punch.prepare (sampleRate);
-    heat.prepare (sampleRate, maxBlockSize);
+    heat.prepare (sampleRate, maxBlockSize, numChannels);
     width.prepare (sampleRate);
-    limiter.prepare (sampleRate);
+    limiter.prepare (sampleRate, anvil::fixed::limiterReleaseMs);
 
+    latencySamples = computeLatency (sampleRate);
+    jassert (latencySamples == anvil::HeatStage::latencySamples() + limiter.getLatency());
+    setLatencySamples (latencySamples);
+
+    dryDelay.setMaximumDelayInSamples (latencySamples + 1);
+    dryDelay.prepare ({ sampleRate, (juce::uint32) maxBlockSize, (juce::uint32) numChannels });
+    dryDelay.setDelay ((float) latencySamples);
     dryBuffer.setSize (numChannels, maxBlockSize);
     bypassMix.reset (sampleRate, 0.010);
     bypassMix.setCurrentAndTargetValue (bypassParam->get() ? 1.0f : 0.0f);
-
-    setLatencySamples (0);
 
     // Start smoothers at the current parameter values (no ramp from defaults on load)
     readParameters();
@@ -127,6 +136,7 @@ void RitualAnvilAudioProcessor::reset()
     heat.reset();
     width.reset();
     limiter.reset();
+    dryDelay.reset();
 }
 
 //==============================================================================
@@ -186,7 +196,7 @@ void RitualAnvilAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     float* const* data = buffer.getArrayOfWritePointers();
     atomicMax (meterIn, blockPeak (data, numChannels, totalSamples));
 
-    // Chunks no larger than the prepared size (dry buffer is fixed)
+    // Chunks no larger than the prepared size (oversampler + dry buffer are fixed)
     for (int offset = 0; offset < totalSamples; offset += maxBlockSize)
     {
         const auto n = juce::jmin (maxBlockSize, totalSamples - offset);
@@ -194,21 +204,21 @@ void RitualAnvilAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         for (int ch = 0; ch < numChannels; ++ch)
             chunk[ch] = data[ch] + offset;
 
-        const bool fullyBypassed = ! bypassMix.isSmoothing() && bypassMix.getTargetValue() >= 1.0f;
-        if (fullyBypassed)
+        // Dry path delayed by the plugin latency (always fed, so bypass stays aligned)
+        for (int ch = 0; ch < numChannels; ++ch)
         {
-            bypassMix.skip (n);
-            continue;   // dry passes through untouched
+            auto* dry = dryBuffer.getWritePointer (ch);
+            for (int i = 0; i < n; ++i)
+            {
+                dryDelay.pushSample (ch, chunk[ch][i]);
+                dry[i] = dryDelay.popSample (ch);
+            }
         }
 
-        const bool crossfading = bypassMix.isSmoothing();
-        if (crossfading)
-            for (int ch = 0; ch < numChannels; ++ch)
-                juce::FloatVectorOperations::copy (dryBuffer.getWritePointer (ch), chunk[ch], n);
-
+        // Wet path always runs: no stale state (limiter delay, OS filters) when un-bypassing
         processChunk (chunk, numChannels, n);
 
-        if (crossfading)
+        if (bypassMix.isSmoothing())
         {
             for (int i = 0; i < n; ++i)
             {
@@ -219,6 +229,9 @@ void RitualAnvilAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         }
         else
         {
+            if (bypassMix.getTargetValue() >= 1.0f)
+                for (int ch = 0; ch < numChannels; ++ch)
+                    juce::FloatVectorOperations::copy (chunk[ch], dryBuffer.getReadPointer (ch), n);
             bypassMix.skip (n);
         }
     }

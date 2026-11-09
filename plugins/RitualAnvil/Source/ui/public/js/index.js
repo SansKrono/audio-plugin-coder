@@ -9,6 +9,7 @@
   and renders the native "meter" event (editor timer, ~30 Hz):
     { in, out:        peak dBFS
       punchGr, limGr: dB of gain reduction (>= 0)
+      lat:            plugin latency (samples)
       eff:            { <paramId>: value after the Mix Ready macro } }
 
   Import order matters: mock-backend must evaluate before the JUCE library,
@@ -43,7 +44,8 @@ function setupHiDPI(canvas) {
 }
 
 /* Latest native meter payload; eff falls back to manual values until the first event */
-let meter = { in: -100, out: -100, punchGr: 0, limGr: 0, eff: null };
+let meter = { in: -100, out: -100, punchGr: 0, limGr: 0, lat: null, eff: null };
+let lastLat = null;
 const effOf = (id, manual) => (meter.eff && Number.isFinite(meter.eff[id]) ? meter.eff[id] : manual);
 
 /* Shared drag/wheel/double-click binding for a SliderState */
@@ -503,6 +505,10 @@ function init() {
     if (!e) return;
     const prev = meter.eff;
     meter = e;
+    if (Number.isFinite(e.lat) && e.lat !== lastLat) {
+      lastLat = e.lat;
+      document.getElementById("footer-info").textContent = `RITUALANVIL v0.2.0 · LAT ${e.lat} smp`;
+    }
     Object.values(knobs).forEach(k => {
       if (!prev || prev[k.id] !== e.eff?.[k.id]) k.render();
     });

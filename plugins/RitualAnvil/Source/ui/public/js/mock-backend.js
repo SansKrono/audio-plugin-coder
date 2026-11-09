@@ -147,6 +147,7 @@ if (typeof window.__JUCE__ === "undefined") {
       out,
       punchGr: bypass || blend <= 0 ? 0 : gP,
       limGr: bypass ? 0 : gL,
+      lat: 157,
       eff: e,
     });
   }, 33);

@@ -22,7 +22,7 @@ else()
 endif()
 
 juce_add_plugin(RitualAnvil
-    VERSION 0.1.0
+    VERSION 0.2.0
     COMPANY_NAME "SansKrono"
     PLUGIN_MANUFACTURER_CODE SnKr
     PLUGIN_CODE Ranv

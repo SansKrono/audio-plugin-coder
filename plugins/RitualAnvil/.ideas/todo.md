@@ -18,7 +18,7 @@
 
 ## Phase 4: CODE (/impl)
 - [x] 4.1.1 Core signal path (60 offline checks pass)
-- [ ] 4.1.2 Quality & optimization (OS Heat, TP limiter, latency)
+- [x] 4.1.2 Quality & optimization (OS Heat, TP limiter, latency 157 smp @ 48 k, 0 allocs, CPU ~3.3 %)
 - [ ] 4.1.3 Polish (bypass, edge cases, state, voicing, pluginval/auval)
 - [ ] 4.2 Port v1-test.html → WebUI, relays, meter + effective-value events
 

@@ -18,11 +18,11 @@
 - [x] Bypass crossfade (10 ms); state save/restore
 
 ### Phase 4.1.2: Quality & Optimization
-- [ ] Heat: 4× `dsp::Oversampling` (FIR halfband), split at OS rate, heat output compensation tuned by ear
-- [ ] `TruePeakLimiter`: ~1.5 ms lookahead, 4× OS peak detection, 150 ms release; ceiling test (no inter-sample overs > ceiling + 0.05 dB)
-- [ ] Latency reporting = OS + lookahead; constant regardless of params
-- [ ] Coefficient sub-block updates, `ScopedNoDenormals`, zero allocations in `processBlock` (verify)
-- [ ] CPU target < 5 % single instance @ 48 kHz
+- [x] Heat: 4× `dsp::Oversampling` (FIR half-band equiripple, integer latency), split + shapers at OS rate; OS path always runs (constant latency/phase). Aliases of 9 kHz @ 20 dB drive ≤ −68 dBc. Output compensation tuning → 4.1.3 (by ear)
+- [x] `TruePeakLimiter`: 1.5 ms lookahead, 4× windowed-sinc detection (32 taps/phase) + parabolic refinement, 150 ms release, min-hold ±8 samples around detected peaks + moving-average attack. True peak ≤ ceiling + 0.04 dB (sines up to 19 kHz, classic fs/4 ISP, noise bursts at mix 100 %)
+- [x] Latency reporting = OS (61 smp) + lookahead (72 @ 48 k) + interp (16) + guard (8) = 157 @ 48 kHz; reported from construction; constant over params; dry/bypass path delayed to match
+- [x] Coefficient sub-block updates, `ScopedNoDenormals`, zero heap allocations in `processBlock` (verified with an operator-new counter in the test)
+- [x] CPU 3.2–3.5 % of real time (process CPU time), single instance @ 48 kHz, everything engaged (target < 5 %). Heat gains cached while Drive is steady; Punch skips log/exp below threshold
 
 ### Phase 4.1.3: Polish
 - [ ] Bypass crossfade with latency-matched dry path

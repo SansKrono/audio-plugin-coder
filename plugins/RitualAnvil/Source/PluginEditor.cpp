@@ -65,7 +65,7 @@ void RitualAnvilAudioProcessorEditor::resized()
         webView->setBounds (getLocalBounds());
 }
 
-/** Native → JS "meter" event: { in, out, punchGr, limGr, eff: { <paramId>: value } } */
+/** Native → JS "meter" event: { in, out, punchGr, limGr, lat, eff: { <paramId>: value } } */
 void RitualAnvilAudioProcessorEditor::timerCallback()
 {
     const auto m = audioProcessor.popMeters();
@@ -79,6 +79,7 @@ void RitualAnvilAudioProcessorEditor::timerCallback()
     payload->setProperty ("out", m.outDbfs);
     payload->setProperty ("punchGr", m.punchGrDb);
     payload->setProperty ("limGr", m.limiterGrDb);
+    payload->setProperty ("lat", audioProcessor.getLatencySamples());
     payload->setProperty ("eff", juce::var (eff));
     webView->emitEventIfBrowserIsVisible ("meter", juce::var (payload));
 }
