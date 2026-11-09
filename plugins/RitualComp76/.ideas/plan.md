@@ -5,13 +5,13 @@
 ## Implementation Strategy: Phased
 
 ### Phase 2.1.1: Core Processing
-- [ ] APVTS with all 7 params (`input`, `output`, `attack`, `release`, `ratio`, `meter_mode`, `bypass`), IDs matching parameter-spec.md
-- [ ] Input/Output attenuators with log taper + ∞ (mute) at bottom, `SmoothedValue`
-- [ ] Feedback peak detector, linked stereo
-- [ ] Attack/release one-pole ballistics with exp time mapping (1–7 → µs/ms)
-- [ ] Gain computer: fixed threshold, 4/8/12/20 ratios, ratio-dependent soft knee
-- [ ] `Out` mode (GR disabled, amp stages active)
-- [ ] GR + VU meter atomics exposed to editor
+- [x] APVTS with all 7 params (`input`, `output`, `attack`, `release`, `ratio`, `meter_mode`, `bypass`), IDs matching parameter-spec.md
+- [x] Input/Output attenuators with log taper + ∞ (mute) at bottom, `SmoothedValue`
+- [x] Feedback peak detector, linked stereo
+- [x] Attack/release one-pole ballistics with exp time mapping (1–7 → µs/ms)
+- [x] Gain computer: fixed threshold, 4/8/12/20 ratios, ratio-dependent soft knee
+- [x] `Out` mode (GR disabled, amp stages active)
+- [x] GR + VU meter atomics exposed to editor
 
 ### Phase 2.1.2: Character & Optimization
 - [ ] 4× `juce::dsp::Oversampling` around nonlinear stages; report latency via `setLatencySamples`

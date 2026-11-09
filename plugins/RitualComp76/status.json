@@ -5,7 +5,7 @@
     "ui_framework": "webview",
     "complexity_score": 3,
     "created_at": "2026-11-09T14:44:38+11:00",
-    "last_modified": "2026-11-09T14:52:05+11:00",
+    "last_modified": "2026-11-09T15:22:49+11:00",
     "phase_history": [
         {
             "phase": "ideation",
@@ -47,5 +47,14 @@
         "approved_version": "v1",
         "source": "design_library/amber-signal",
         "preview": "Design/v1-test.html"
+    },
+    "implementation": {
+        "completed_phases": [
+            "4.1.1"
+        ],
+        "next_phase": "4.1.2",
+        "build": "macOS VST3/AU/Standalone OK",
+        "auval": "passed",
+        "dsp_tests": "21/21 passed"
     }
 }
