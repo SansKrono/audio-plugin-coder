@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RitualComp76 Plugin</title>
+<script type="module" src="js/index.js"></script>
+<style>
+  :root {
+    --bg: #101014;
+    --surface: #1A1A1F;
+    --surface-hl: #292930;
+    --primary: #FFC300;
+    --primary-dim: rgba(255, 195, 0, 0.16);
+    --secondary: #00FFF0;
+    --secondary-dim: rgba(0, 255, 240, 0.14);
+    --danger: #FF4D3D;
+    --text: #F0F0F5;
+    --text-dim: #A0A0A5;
+    --border: #3A3A45;
+    --font: "Roboto Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  body {
+    width: 760px;
+    height: 380px;
+    overflow: hidden;
+  }
+
+  #plugin-ui {
+    width: 760px;
+    height: 380px;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-top: 3px solid var(--primary);
+  }
+
+  /* ---------- Header ---------- */
+  .header {
+    height: 48px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: baseline; gap: 14px; }
+  .wordmark { font-size: 15px; font-weight: 700; letter-spacing: 0.18em; }
+  .wordmark span { color: var(--primary); }
+  .subtitle { font-size: 10px; letter-spacing: 0.14em; color: var(--text-dim); }
+
+  .power {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface-hl);
+    display: grid; place-items: center;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .power svg { width: 14px; height: 14px; stroke: var(--text-dim); transition: stroke .15s; }
+  .power.on { border-color: var(--primary); box-shadow: 0 0 10px rgba(255,195,0,0.35); }
+  .power.on svg { stroke: var(--primary); }
+
+  /* ---------- Body ---------- */
+  .body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 124px 124px 1fr 96px 104px;
+    padding: 0 20px;
+    column-gap: 12px;
+    align-items: stretch;
+  }
+  .col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    position: relative;
+  }
+  .col.divider::after {
+    content: "";
+    position: absolute;
+    right: -6px; top: 18px; bottom: 18px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .control { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .label {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--text-dim);
+  }
+  .value {
+    font-size: 13px; font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    min-height: 16px;
+  }
+  .value.small { font-size: 11px; color: var(--text-dim); }
+  .knob { cursor: ns-resize; touch-action: none; display: block; }
+
+  /* ---------- Meter ---------- */
+  .meter-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  #vu-meter { display: block; transition: opacity .2s; }
+  #vu-meter.off { opacity: 0.4; }
+
+  .segmented {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    width: 236px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .segmented button {
+    height: 26px;
+    border: 0;
+    border-right: 1px solid var(--border);
+    background: var(--surface-hl);
+    color: var(--text-dim);
+    font: 600 11px/1 var(--font);
+    letter-spacing: 0.08em;
+    cursor: pointer;
+  }
+  .segmented button:last-child { border-right: 0; }
+  .segmented button:hover { color: var(--text); }
+  .segmented button.active { background: var(--primary-dim); color: var(--primary); }
+
+  /* ---------- Ratio ---------- */
+  .ratio-stack { display: flex; flex-direction: column; gap: 6px; width: 84px; }
+  .ratio-btn {
+    height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-hl);
+    color: var(--text-dim);
+    font: 600 12px/1 var(--font);
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s, box-shadow .12s;
+  }
+  .ratio-btn:hover { border-color: var(--text-dim); color: var(--text); }
+  .ratio-btn.active { background: var(--primary-dim); border-color: var(--primary); color: var(--primary); }
+  .ratio-btn.all-on {
+    background: var(--secondary-dim); border-color: var(--secondary); color: var(--secondary);
+    box-shadow: 0 0 8px rgba(0,255,240,0.25);
+  }
+  .ratio-btn.all { height: 26px; font-size: 11px; margin-top: 4px; }
+  .ratio-caption { font-size: 10px; letter-spacing: 0.12em; color: var(--text-dim); height: 12px; text-align: center; }
+  .ratio-caption.all { color: var(--secondary); }
+
+  /* ---------- Footer ---------- */
+  .footer {
+    height: 28px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--border);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+  }
+  #gr-readout { font-variant-numeric: tabular-nums; color: var(--text); }
+  #gr-readout b { color: var(--text-dim); font-weight: 400; margin-right: 8px; }
+
+  #plugin-ui.bypassed .body { opacity: 0.55; }
+</style>
+</head>
+<body>
+<div id="plugin-ui">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">
+      <div class="wordmark">RITUALCOMP<span>76</span></div>
+      <div class="subtitle">FET LIMITING AMPLIFIER</div>
+    </div>
+    <div class="power on" id="bypass-control" title="Power (bypass)">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round">
+        <path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div class="body">
+    <div class="col">
+      <div class="control" id="input-control">
+        <div class="label">Input</div>
+        <canvas class="knob" id="input-knob" width="112" height="112"></canvas>
+        <div class="value" id="input-value">-24 dB</div>
+      </div>
+    </div>
+
+    <div class="col divider">
+      <div class="control" id="output-control">
+        <div class="label">Output</div>
+        <canvas class="knob" id="output-knob" width="112" height="112"></canvas>
+        <div class="value" id="output-value">-24 dB</div>
+      </div>
+    </div>
+
+    <div class="col divider">
+      <div class="meter-wrap">
+        <canvas id="vu-meter" width="236" height="140"></canvas>
+        <div class="segmented" id="meter_mode-control">
+          <button data-value="GR" class="active">GR</button>
+          <button data-value="+8">+8</button>
+          <button data-value="+4">+4</button>
+          <button data-value="Off">OFF</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="col divider" style="gap:14px">
+      <div class="control" id="attack-control">
+        <div class="label">Attack</div>
+        <canvas class="knob" id="attack-knob" width="68" height="68"></canvas>
+        <div class="value small" id="attack-value">3.0</div>
+      </div>
+      <div class="control" id="release-control">
+        <div class="label">Release</div>
+        <canvas class="knob" id="release-knob" width="68" height="68"></canvas>
+        <div class="value small" id="release-value">5.0</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="label">Ratio</div>
+      <div class="ratio-stack" id="ratio-control">
+        <button class="ratio-btn" data-ratio="4">4</button>
+        <button class="ratio-btn" data-ratio="8">8</button>
+        <button class="ratio-btn" data-ratio="12">12</button>
+        <button class="ratio-btn" data-ratio="20">20</button>
+        <button class="ratio-btn all" data-ratio="All">ALL</button>
+      </div>
+      <div class="ratio-caption" id="ratio-value"></div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>RITUALCOMP76 v0.0.1</span>
+    <span id="gr-readout"><b>GR</b>0.0 dB</span>
+  </div>
+</div>
+
+</body>
+</html>
