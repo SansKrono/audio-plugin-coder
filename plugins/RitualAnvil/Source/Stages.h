@@ -335,6 +335,16 @@ namespace anvil
 
         void setTargets (float db) { driveDb.setTargetValue (std::clamp (db, 0.0f, 20.0f)); }
 
+        /** Output compensation (dB) for a given drive (dB). Fitted in 4.1.3 with Tests/Calibrate.cpp on
+            three drum stems normalised to −6 dBFS peak: raw Heat gain ≈ d − 0.00042·d³ (clipping eats
+            the peaks). Residual level change: within ±1 dB up to ~12 dB drive, within ±2.5 dB at 20 dB
+            (signal-dependent: real stems −1.6…+1.8 dB; a pure 55 Hz kick into the hard-clipped
+            low band −2.4 dB). A static law cannot do better without auto-gain. */
+        static float compensationDb (float driveDb) noexcept { return -driveDb + 0.00042f * driveDb * driveDb * driveDb; }
+
+        /** Calibration only: disable output compensation. */
+        void setCompensationEnabled (bool on) noexcept { compensate = on; gainsDirty = true; }
+
         static float hardClip (float x) noexcept { return std::clamp (x, -1.0f, 1.0f); }
         static float softClip (float x) noexcept { return std::tanh (x); }
         static float tube (float x) noexcept     { return x > 0.0f ? std::tanh (x) : 0.5f * std::tanh (2.0f * x); }
@@ -356,7 +366,7 @@ namespace anvil
                     gainsDirty = false;
                     amount = std::clamp (d / 3.0f, 0.0f, 1.0f);   // fade the shapers in over the first 3 dB
                     g = dbToGain (d);
-                    comp = dbToGain (-0.5f * d);                  // rough output compensation (tuned in 4.1.3)
+                    comp = compensate ? dbToGain (compensationDb (d)) : 1.0f;
                 }
 
                 for (int c = 0; c < numCh; ++c)
@@ -378,7 +388,7 @@ namespace anvil
 
     private:
         double osRate = 192000.0;
-        bool gainsDirty = true;
+        bool gainsDirty = true, compensate = true;
         float amount = 0.0f, g = 1.0f, comp = 1.0f;
         std::unique_ptr<juce::dsp::Oversampling<float>> os;
         BandSplitter3 splitter;

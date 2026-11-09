@@ -19,8 +19,10 @@
 ## Phase 4: CODE (/impl)
 - [x] 4.1.1 Core signal path (60 offline checks pass)
 - [x] 4.1.2 Quality & optimization (OS Heat, TP limiter, latency 157 smp @ 48 k, 0 allocs, CPU ~3.3 %)
-- [ ] 4.1.3 Polish (bypass, edge cases, state, voicing, pluginval/auval)
-- [ ] 4.2 Port v1-test.html → WebUI, relays, meter + effective-value events
+- [x] 4.1.3 Polish (edge cases, click-free jumps, heat compensation calibration, pluginval/auval; 100 checks pass)
+- [ ] By-ear voicing sign-off: Mix Ready curve (−1.5 dB dip near 25 %), Heat character, renders in build/RitualAnvil_renders
+- [x] 4.2 Port v1-test.html → WebUI, relays, meter + effective-value events (done with 4.1.1)
+- [ ] Open the editor in a DAW and confirm the WebView UI (only browser preview + pluginval GUI test so far)
 
 ## Phase 5: SHIP
 - [ ] Build, test, package

@@ -22,7 +22,7 @@ else()
 endif()
 
 juce_add_plugin(RitualAnvil
-    VERSION 0.2.0
+    VERSION 0.3.0
     COMPANY_NAME "SansKrono"
     PLUGIN_MANUFACTURER_CODE SnKr
     PLUGIN_CODE Ranv
@@ -118,3 +118,17 @@ target_link_libraries(RitualAnvil_DspTest
 
 # NOTE: no per-target XCODE_ATTRIBUTE_ARCHS. For universal builds pass
 # -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" at configure time.
+
+# ============================================
+# Calibration + listening renders (not built by default, not a test)
+#   cmake --build build --target RitualAnvil_Calibrate
+#   ./build/plugins/RitualAnvil/RitualAnvil_Calibrate <outDir> <drums.wav> [...]
+# ============================================
+add_executable(RitualAnvil_Calibrate EXCLUDE_FROM_ALL Tests/Calibrate.cpp)
+target_include_directories(RitualAnvil_Calibrate PRIVATE $<TARGET_PROPERTY:RitualAnvil,INCLUDE_DIRECTORIES>)
+target_compile_definitions(RitualAnvil_Calibrate PRIVATE $<TARGET_PROPERTY:RitualAnvil,COMPILE_DEFINITIONS>)
+target_link_libraries(RitualAnvil_Calibrate
+    PRIVATE RitualAnvil
+            juce::juce_audio_formats
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_lto_flags)

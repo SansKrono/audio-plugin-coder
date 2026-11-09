@@ -25,15 +25,18 @@
 - [x] CPU 3.2–3.5 % of real time (process CPU time), single instance @ 48 kHz, everything engaged (target < 5 %). Heat gains cached while Drive is steady; Punch skips log/exp below threshold
 
 ### Phase 4.1.3: Polish
-- [ ] Bypass crossfade with latency-matched dry path
-- [ ] Edge cases: SR change, block size 1, mono in, silence, max-everything (all +12 dB, heat 20, macro 100)
-- [ ] State save/restore (APVTS XML), version tag
-- [ ] Voicing pass: Mix Ready sweep on reference drum loops; adjust offsets only with sign-off
-- [ ] pluginval (strictness 10) + auval
+- [x] Bypass crossfade with latency-matched dry path (done in 4.1.2; click ratio ≤ 1.0 both directions)
+- [x] Edge cases: SR change (48 → 96 → 44.1 k, latency follows), block size 1, mono in/out, mismatched layout rejected, reset() mid-stream, silence, max-everything
+- [x] Click-free jumps for every control incl. Mix Ready 0 ↔ 100 and bypass (transition curvature ≤ 1.5× steady; worst 1.28)
+- [x] State save/restore (APVTS XML), version tag
+- [x] Heat output compensation calibrated on 3 real drum stems (`Tests/Calibrate.cpp`): −d + 0.00042·d³ dB → ±1 dB to 12 dB drive, ±2.5 dB at 20 dB (signal-dependent)
+- [x] Mix Ready sweep measured + listening renders (`build/RitualAnvil_renders`, raw + loudness-matched)
+- [ ] **Voicing sign-off (by ear):** Mix Ready dips −1.4…−1.6 dB around 25 % (sustain dip + box cut) before rising to 0…+2 dB at 100 %. Offsets unchanged pending user listening
+- [x] pluginval (strictness 10, VST3 + AU) + auval
 
-### Phase 4.2: UI Binding (after Design phase)
-- [ ] WebView relays for all params, meter + effective-value events at 30 Hz
-- [ ] Macro ghost rings driven by effective values
+### Phase 4.2: UI Binding (done in 4.1.1)
+- [x] WebView relays for all params, meter + effective-value events at 30 Hz
+- [x] Macro ghost rings driven by effective values
 
 ## Dependencies
 

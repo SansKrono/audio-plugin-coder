@@ -1,4 +1,4 @@
-// Offline checks for RitualAnvil DSP (Phases 4.1.1 + 4.1.2).
+// Offline checks for RitualAnvil DSP (Phases 4.1.1 - 4.1.3).
 // Build: cmake --build build --target RitualAnvil_DspTest
 // Run:   ./build/plugins/RitualAnvil/RitualAnvil_DspTest_artefacts/Release/RitualAnvil_DspTest
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -316,6 +316,35 @@ namespace
         check (h2 > -60.0, "heat makes real harmonics (2nd @ 18 kHz, dBc)", h2, -60.0, 0.0);
     }
 
+    void testHeatCompensation()
+    {
+        std::puts ("\n-- Heat output compensation keeps level steady (drum-like bursts, peak -6 dBFS) --");
+        juce::Random rnd (11);
+        const size_t len = (size_t) fs * 2;
+        Vec x (len);
+        for (size_t i = 0; i < len; ++i)
+        {
+            const float kick = std::exp (-(float) (i % 24000) / 2400.0f) * (float) std::sin (juce::MathConstants<double>::twoPi * 55.0 * (double) (i % 24000) / fs);
+            const float snare = std::exp (-(float) ((i + 12000) % 24000) / 1500.0f) * (rnd.nextFloat() * 2.0f - 1.0f);
+            const float hat = 0.15f * std::exp (-(float) (i % 6000) / 300.0f) * (rnd.nextFloat() * 2.0f - 1.0f);
+            x[i] = 0.5f * (kick + 0.7f * snare + hat);
+        }
+        const auto rmsDb = [] (const Vec& v) { double s = 0; for (auto a : v) s += (double) a * a; return 10.0 * std::log10 (s / (double) v.size()); };
+        const double ref = rmsDb (x);
+        for (float d : { 6.0f, 12.0f, 20.0f })
+        {
+            anvil::HeatStage h; h.prepare (fs, 512, 2); h.setTargets (d); h.snap();
+            Vec l = x, r = x;
+            for (size_t off = 0; off < len; off += 512)
+            {
+                float* ch[] = { l.data() + off, r.data() + off };
+                h.process (ch, 2, (int) std::min<size_t> (512, len - off));
+            }
+            char label[64]; std::snprintf (label, sizeof label, "drive %.0f dB: RMS level change (dB)", d);
+            near (label, rmsDb (l) - ref, 0.0, d <= 12.0f ? 1.0 : 2.5);   // see HeatStage::compensationDb
+        }
+    }
+
     void testLatency()
     {
         std::puts ("\n-- Latency: reported == measured, constant over params --");
@@ -354,6 +383,116 @@ namespace
 
         Rig hot; hot.set (ParameterIDs::mixReady, 100.0f); hot.set (ParameterIDs::heat, 20.0f); hot.prepare();
         near ("latency unchanged with heat/macro maxed", hot.proc->getLatencySamples(), reported, 0.0);
+    }
+
+    //==========================================================================
+    // 4.1.3: edge cases + click-free parameter jumps
+    //==========================================================================
+
+    /** Max |second difference| — spikes when a waveform has a discontinuity. */
+    double maxCurvature (const Vec& y, size_t from, size_t to)
+    {
+        double m = 0.0;
+        for (size_t i = std::max<size_t> (from, 2); i < std::min (to, y.size()); ++i)
+            m = std::max (m, (double) std::abs (y[i] - 2.0f * y[i - 1] + y[i - 2]));
+        return m;
+    }
+
+    /** Renders a stereo tone pair, jumps one parameter at sample `at`, returns
+        transition curvature / max (steady curvature before, after). ~1 == click-free. */
+    double jumpClickRatio (std::initializer_list<std::pair<const char*, float>> before,
+                           std::initializer_list<std::pair<const char*, float>> after)
+    {
+        Rig rig;
+        for (auto& [id, v] : before) rig.set (id, v);
+        rig.prepare (512);
+        const size_t at = 47 * 512, win = 4800, len = at + 3 * win;
+        Vec l = sine (1000.0, 0.125f, len), r = sine (1100.0, 0.125f, len);
+        Vec a1 (l.begin(), l.begin() + (long) at), b1 (r.begin(), r.begin() + (long) at);
+        Vec a2 (l.begin() + (long) at, l.end()), b2 (r.begin() + (long) at, r.end());
+        auto [o1, p1] = rig.run (a1, b1);
+        for (auto& [id, v] : after) rig.set (id, v);
+        auto [o2, p2] = rig.run (a2, b2);
+        Vec out = o1; out.insert (out.end(), o2.begin(), o2.end());
+        const double steady = std::max (maxCurvature (out, at - win, at), maxCurvature (out, at + win, at + 2 * win));
+        return maxCurvature (out, at, at + win) / std::max (steady, 1.0e-9);
+    }
+
+    void testEdgeCases()
+    {
+        std::puts ("\n-- Edge cases: sample-rate change, mono, reset --");
+        {
+            Rig rig; rig.set (ParameterIDs::mixReady, 60.0f); rig.prepare();
+            const auto x = sine (1000.0, 0.25f, 24000);
+            rig.run (x, x);
+            rig.proc->prepareToPlay (96000.0, 256);
+            near ("96 kHz re-prepare: latency follows", rig.proc->getLatencySamples(), RitualAnvilAudioProcessor::computeLatency (96000.0), 0.0);
+            rig.proc->prepareToPlay (44100.0, 1024);
+            near ("44.1 kHz re-prepare: latency follows", rig.proc->getLatencySamples(), RitualAnvilAudioProcessor::computeLatency (44100.0), 0.0);
+            const auto [l, r] = rig.run (x, x, 1024);
+            bool finite = true; for (auto v : l) finite &= std::isfinite (v);
+            check (finite, "after SR changes: output finite", finite, 1, 0);
+
+            Rig neutral96; neutral96.proc->prepareToPlay (96000.0, 512);
+            const auto len = (size_t) 96000;
+            const auto y = [&] { Vec v (len); for (size_t i = 0; i < len; ++i) v[i] = 0.125f * (float) std::sin (juce::MathConstants<double>::twoPi * 1000.0 * (double) i / 96000.0); return v; }();
+            const auto [nl, nr] = neutral96.run (y, y);
+            const auto w = juce::MathConstants<double>::twoPi * 1000.0 / 96000.0;
+            double s1 = 0, s2 = 0; const double c = 2.0 * std::cos (w);
+            for (size_t i = len / 2; i < len; ++i) { const double s0 = nl[i] + c * s1 - s2; s2 = s1; s1 = s0; }
+            const double mag = 2.0 * std::sqrt (s1 * s1 + s2 * s2 - c * s1 * s2) / (double) (len / 2);
+            near ("96 kHz defaults: 1 kHz gain (dB)", toDb (mag / 0.125), 0.0, 0.1);
+        }
+        {
+            RitualAnvilAudioProcessor proc;
+            const bool ok = proc.setBusesLayout ({ { juce::AudioChannelSet::mono() }, { juce::AudioChannelSet::mono() } });
+            check (ok, "mono layout accepted", ok, 1, 0);
+            proc.prepareToPlay (fs, 512);
+            Vec m = sine (200.0, 0.5f, 48000);
+            juce::MidiBuffer midi;
+            for (size_t off = 0; off < m.size(); off += 512)
+            {
+                float* ch[] = { m.data() + off };
+                juce::AudioBuffer<float> buf (ch, 1, 512);
+                proc.processBlock (buf, midi);
+            }
+            float pk = 0; bool finite = true;
+            for (size_t i = 24000; i < m.size(); ++i) { pk = std::max (pk, std::abs (m[i])); finite &= std::isfinite (m[i]); }
+            check (finite && pk > 0.4f && pk < 0.55f, "mono in/out: 200 Hz passes at ~unity", pk, 0.5, 0.05);
+            const bool bad = proc.setBusesLayout ({ { juce::AudioChannelSet::stereo() }, { juce::AudioChannelSet::mono() } });
+            check (! bad, "mismatched in/out layout rejected", bad, 0, 0);
+        }
+        {
+            Rig rig; rig.set (ParameterIDs::mixReady, 100.0f); rig.prepare();
+            const auto x = sine (80.0, 0.9f, 24000);
+            rig.run (x, x);
+            rig.proc->reset();
+            const auto [l, r] = rig.run (Vec (4800, 0.0f), Vec (4800, 0.0f));
+            float pk = 0; for (auto v : l) pk = std::max (pk, std::abs (v));
+            atMost ("reset() mid-stream: silence after (peak)", pk, 1.0e-6);
+        }
+
+        std::puts ("\n-- Click-free parameter jumps (transition / steady curvature) --");
+        using namespace ParameterIDs;
+        const struct { const char* what; std::initializer_list<std::pair<const char*, float>> a, b; } jumps[] = {
+            { "mix_ready 0 -> 100",   { { mixReady, 0.0f } },   { { mixReady, 100.0f } } },
+            { "mix_ready 100 -> 0",   { { mixReady, 100.0f } }, { { mixReady, 0.0f } } },
+            { "heat 0 -> 20",         { { heat, 0.0f } },       { { heat, 20.0f } } },
+            { "input_gain -12 -> +12",{ { inputGain, -12.0f } },{ { inputGain, 12.0f } } },
+            { "hpf 20 -> 100",        { { hpf, 20.0f } },       { { hpf, 100.0f } } },
+            { "eq_snare -12 -> +12",  { { eqSnare, -12.0f } },  { { eqSnare, 12.0f } } },
+            { "transient atk -12 -> +12", { { transientAttack, -12.0f } }, { { transientAttack, 12.0f } } },
+            { "punch 0 -> 100",       { { punch, 0.0f } },      { { punch, 100.0f } } },
+            { "width 50 -> 150",      { { width, 50.0f } },     { { width, 150.0f } } },
+            { "ceiling -0.1 -> -1 (limiting)", { { inputGain, 12.0f }, { ceiling, -0.1f } }, { { ceiling, -1.0f } } },
+            { "bypass off -> on",     { { mixReady, 100.0f }, { bypass, 0.0f } }, { { bypass, 1.0f } } },
+            { "bypass on -> off",     { { mixReady, 100.0f }, { bypass, 1.0f } }, { { bypass, 0.0f } } },
+        };
+        for (const auto& j : jumps)
+        {
+            char label[80]; std::snprintf (label, sizeof label, "%s: click ratio", j.what);
+            atMost (label, jumpClickRatio (j.a, j.b), 1.5);
+        }
     }
 
     void testRealtimeSafety()
@@ -502,12 +641,14 @@ int main()
     testMacroInChain();
     testLimiter();
     testHeatAliasing();
+    testHeatCompensation();
     testLatency();
     testWidth();
     testBlockSizeInvariance();
     testExtremesFinite();
     testBypass();
     testState();
+    testEdgeCases();
     testRealtimeSafety();
 
     std::printf ("\n%s: %d failure(s)\n", failures == 0 ? "ALL PASS" : "FAILED", failures);

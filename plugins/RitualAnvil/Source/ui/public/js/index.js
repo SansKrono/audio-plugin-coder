@@ -507,7 +507,7 @@ function init() {
     meter = e;
     if (Number.isFinite(e.lat) && e.lat !== lastLat) {
       lastLat = e.lat;
-      document.getElementById("footer-info").textContent = `RITUALANVIL v0.2.0 · LAT ${e.lat} smp`;
+      document.getElementById("footer-info").textContent = `RITUALANVIL v0.3.0 · LAT ${e.lat} smp`;
     }
     Object.values(knobs).forEach(k => {
       if (!prev || prev[k.id] !== e.eff?.[k.id]) k.render();

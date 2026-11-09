@@ -1,11 +1,11 @@
 {
     "plugin_name": "RitualAnvil",
-    "version": "v0.2.0",
-    "current_phase": "design_complete",
+    "version": "v0.3.0",
+    "current_phase": "code_complete",
     "ui_framework": "webview",
     "complexity_score": 3,
     "created_at": "2026-11-09T15:40:39+11:00",
-    "last_modified": "2026-11-09T16:26:07+11:00",
+    "last_modified": "2026-11-09T16:41:26+11:00",
     "phase_history": [
         {
             "phase": "ideation",
@@ -21,6 +21,11 @@
             "phase": "design",
             "completed_at": "2026-11-09T15:55:32+11:00",
             "framework_selected": "webview"
+        },
+        {
+            "phase": "code",
+            "completed_at": "2026-11-09T16:41:26+11:00",
+            "framework_selected": "webview"
         }
     ],
     "validation": {
@@ -29,7 +34,7 @@
         "architecture_defined": true,
         "ui_framework_selected": true,
         "design_complete": true,
-        "code_complete": false,
+        "code_complete": true,
         "tests_passed": false,
         "ship_ready": false
     },
@@ -60,14 +65,23 @@
         "completed_phases": [
             "4.0",
             "4.1.1",
-            "4.1.2"
+            "4.1.2",
+            "4.1.3",
+            "4.2"
         ],
-        "next_phase": "4.1.3",
+        "next_phase": "by-ear voicing sign-off, then /ship",
         "webview_ui_approved": true,
         "build": "macOS VST3/AU/Standalone OK",
         "auval": "passed",
-        "dsp_tests": "77/77 passed",
+        "dsp_tests": "100/100 passed",
         "latency_samples_48k": 157,
-        "cpu_percent_48k": "3.2-3.5"
+        "cpu_percent_48k": "3.2-3.5",
+        "pluginval": "strictness 10 passed (VST3 + AU, incl. editor tests)",
+        "heat_compensation": "-d + 0.00042 d^3 dB (3 drum stems)",
+        "renders": "build/RitualAnvil_renders",
+        "pending": [
+            "by-ear voicing sign-off (Mix Ready dip near 25 %)",
+            "open editor in a DAW"
+        ]
     }
 }
