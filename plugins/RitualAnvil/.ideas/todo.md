@@ -30,4 +30,7 @@
 - [ ] macOS: brief white flash while the WebView loads
 
 ## Phase 5: SHIP
-- [ ] Build, test, package
+- [x] macOS beta package v0.3.0-beta: universal VST3/AU/Standalone, ad-hoc signed, pkg + dmg + zip (dist/)
+- [ ] Developer ID signing + notarization
+- [ ] Windows / Linux builds (fix CI tag trigger first)
+- [ ] Review EULA (APC template) before public release

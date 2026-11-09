@@ -1,0 +1,41 @@
+================================================================================
+                    RitualAnvil END USER LICENSE AGREEMENT
+================================================================================
+
+IMPORTANT: PLEASE READ THIS LICENSE CAREFULLY BEFORE USING THIS SOFTWARE.
+
+1. GRANT OF LICENSE
+   This software is licensed, not sold. By installing or using this software,
+   you agree to be bound by the terms of this agreement.
+
+2. PERMITTED USE
+   - You may install and use this software on multiple computers
+   - You may use this software for commercial and non-commercial purposes
+   - You may create and distribute audio content using this software
+
+3. RESTRICTIONS
+   - You may not reverse engineer, decompile, or disassemble this software
+   - You may not redistribute or resell this software
+   - You may not remove or alter any copyright notices
+
+4. BETA SOFTWARE
+   This is a beta release (0.3.0). It may contain errors and may change
+   before a final release.
+
+5. THIRD-PARTY COMPONENTS
+   This software includes third-party components under their own licenses.
+   See THIRD_PARTY_NOTICES.txt.
+
+6. DISCLAIMER OF WARRANTY
+   THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
+
+7. LIMITATION OF LIABILITY
+   IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY DAMAGES ARISING FROM
+   THE USE OF THIS SOFTWARE.
+
+================================================================================
+By installing this software, you acknowledge that you have read, understood,
+and agree to be bound by these terms.
+
+(c) 2026 SansKrono
+================================================================================

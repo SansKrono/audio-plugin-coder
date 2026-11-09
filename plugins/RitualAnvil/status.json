@@ -1,11 +1,11 @@
 {
     "plugin_name": "RitualAnvil",
-    "version": "v0.3.0",
-    "current_phase": "code_complete",
+    "version": "v0.3.0-beta",
+    "current_phase": "ship_complete",
     "ui_framework": "webview",
     "complexity_score": 3,
     "created_at": "2026-11-09T15:40:39+11:00",
-    "last_modified": "2026-11-09T17:00:31+11:00",
+    "last_modified": "2026-11-09T17:07:59+11:00",
     "phase_history": [
         {
             "phase": "ideation",
@@ -26,6 +26,11 @@
             "phase": "code",
             "completed_at": "2026-11-09T16:41:26+11:00",
             "framework_selected": "webview"
+        },
+        {
+            "phase": "ship",
+            "completed_at": "2026-11-09T17:07:59+11:00",
+            "framework_selected": "webview"
         }
     ],
     "validation": {
@@ -36,7 +41,7 @@
         "design_complete": true,
         "code_complete": true,
         "tests_passed": false,
-        "ship_ready": false
+        "ship_ready": true
     },
     "framework_selection": {
         "decision": "webview",
@@ -83,8 +88,43 @@
         "pending": [
             "by-ear voicing sign-off (Mix Ready + Heat)",
             "open editor in a DAW (Standalone checked)",
-            "macOS: brief white flash while the WebView loads (no JUCE option on mac)"
+            "macOS: brief white flash while the WebView loads (no JUCE option on mac)",
+            "Developer ID signing + notarization",
+            "Windows/Linux builds (CI tag trigger broken: reads inputs.plugin_name on push)",
+            "EULA text is the APC template: review before public release",
+            "Intel Mac tested only under Rosetta"
         ],
         "ui": "v2 GlassKit, 1100x660; verified in Standalone (WKWebView)"
+    },
+    "distribution": {
+        "channel": "beta",
+        "platforms": [
+            "macOS"
+        ],
+        "local_build": [
+            "macOS"
+        ],
+        "github_build": [],
+        "architectures": [
+            "arm64",
+            "x86_64"
+        ],
+        "formats": [
+            "VST3",
+            "AU",
+            "Standalone"
+        ],
+        "signing": "ad-hoc (no Developer ID); not notarized",
+        "artifacts": [
+            "dist/RitualAnvil-v0.3.0-beta/RitualAnvil-0.3.0-beta.pkg",
+            "dist/RitualAnvil-v0.3.0-beta/RitualAnvil-0.3.0-beta-macOS.dmg",
+            "dist/RitualAnvil-v0.3.0-beta-macOS.zip"
+        ],
+        "sha256": {
+            "pkg": "0613dc5a35be8d6b8457601cd4681aa2821bc04a538be312b07d17c7114eca91",
+            "dmg": "28e68d4cc46da7544934a12c7a64b4a6d464538801c0f071ad8435c815796ca8",
+            "zip": "c38da417211e8f912181a3c449760b2988ff5dc75a55664f7422a9df8ee75761"
+        },
+        "packaging_script": "scripts/package-macos.sh"
     }
 }
