@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RitualAnvil Plugin</title>
+<style>
+  :root {
+    --bg: #101014;
+    --surface: #1A1A1F;
+    --card: #151519;
+    --surface-hl: #292930;
+    --primary: #FFC300;
+    --primary-dim: rgba(255, 195, 0, 0.16);
+    --ember: #FF5A1F;
+    --ember-dim: rgba(255, 90, 31, 0.18);
+    --danger: #FF4D3D;
+    --text: #F0F0F5;
+    --text-dim: #A0A0A5;
+    --border: #3A3A45;
+    --font: "Roboto Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  body { width: 1000px; height: 600px; overflow: hidden; }
+
+  #plugin-ui {
+    width: 1000px;
+    height: 600px;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-top: 3px solid var(--primary);
+  }
+
+  /* ---------- Header ---------- */
+  .header {
+    height: 48px;
+    flex: none;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: baseline; gap: 14px; }
+  .wordmark { font-size: 15px; font-weight: 700; letter-spacing: 0.18em; }
+  .wordmark span { color: var(--primary); }
+  .subtitle { font-size: 10px; letter-spacing: 0.14em; color: var(--text-dim); }
+
+  .power {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface-hl);
+    display: grid; place-items: center;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .power svg { width: 14px; height: 14px; stroke: var(--text-dim); transition: stroke .15s; }
+  .power.on { border-color: var(--primary); box-shadow: 0 0 10px rgba(255,195,0,0.35); }
+  .power.on svg { stroke: var(--primary); }
+
+  /* ---------- Body ---------- */
+  .body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 268px 1fr 76px;
+    column-gap: 14px;
+    padding: 14px 20px;
+    transition: opacity .2s;
+  }
+  #plugin-ui.bypassed .body { opacity: 0.55; }
+
+  .col-left { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .col-center {
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    row-gap: 12px;
+    min-height: 0;
+  }
+  .row1 { display: grid; grid-template-columns: 176px 1fr; column-gap: 12px; min-height: 0; }
+  .row2 { display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 12px; min-height: 0; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .card-title {
+    height: 18px;
+    flex: none;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.16em;
+    color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-title .num { color: var(--primary); opacity: 0.7; }
+  .card-title .note { margin-left: auto; font-size: 9px; font-weight: 400; color: var(--text-dim); letter-spacing: 0.08em; }
+  .card-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    gap: 8px;
+    min-height: 0;
+  }
+
+  .control { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .label {
+    font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+  .value {
+    font-size: 11px; font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    white-space: nowrap;
+    min-height: 14px;
+  }
+  .eff {
+    font-size: 10px; font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--ember);
+    white-space: nowrap;
+    min-height: 12px;
+    visibility: hidden;
+  }
+  .eff.on { visibility: visible; }
+  .knob { cursor: ns-resize; touch-action: none; display: block; }
+
+  /* ---------- Hero ---------- */
+  .hero { flex: 1; align-items: center; }
+  .hero .card-body { flex-direction: column; justify-content: center; gap: 6px; }
+  #mix_ready-knob { cursor: ns-resize; touch-action: none; }
+  .hero-caption { font-size: 9px; letter-spacing: 0.14em; color: var(--text-dim); text-align: center; line-height: 1.5; }
+
+  .input-card { height: 168px; flex: none; }
+
+  /* ---------- EQ ---------- */
+  .eq-card .card-body { flex-direction: column; justify-content: space-between; align-items: stretch; gap: 6px; }
+  #eq-curve { display: block; border-radius: 3px; }
+  .eq-knobs { display: flex; justify-content: space-between; }
+  .freq { font-size: 9px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  /* ---------- GR bars ---------- */
+  .with-bar { display: flex; align-items: center; gap: 10px; }
+  .grbar { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .grbar .label { margin: 0; }
+
+  .heat-caption { font-size: 8px; letter-spacing: 0.1em; color: var(--text-dim); text-align: center; line-height: 1.5; }
+
+  /* ---------- Meters ---------- */
+  .meters { padding: 10px 6px; }
+  .meters .card-body { flex-direction: column; justify-content: flex-start; gap: 6px; }
+  .meter-labels { display: flex; justify-content: space-between; width: 100%; padding: 0 6px; }
+  .meter-readouts { display: flex; justify-content: space-between; width: 100%; padding: 0 2px; font-size: 9px; font-variant-numeric: tabular-nums; color: var(--text); }
+
+  /* ---------- Footer ---------- */
+  .footer {
+    height: 28px;
+    flex: none;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--border);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+  }
+  #lim-readout { font-variant-numeric: tabular-nums; color: var(--text); }
+  #lim-readout b { color: var(--text-dim); font-weight: 400; margin-right: 8px; }
+</style>
+</head>
+<body>
+<div id="plugin-ui">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">
+      <div class="wordmark">RITUAL <span>ANVIL</span></div>
+      <div class="subtitle">DRUM BUS FORGE</div>
+    </div>
+    <div class="power on" id="bypass-control" title="Power (bypass)">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round">
+        <path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div class="body">
+
+    <!-- Left: hero + input -->
+    <div class="col-left">
+      <div class="card hero" id="mix_ready-control">
+        <div class="card-title" style="align-self: stretch">MIX READY <span class="note">MACRO</span></div>
+        <div class="card-body">
+          <canvas id="mix_ready-knob" width="210" height="210"></canvas>
+          <div class="hero-caption">ONE KNOB · RAW KIT → FINISHED BUS<br><span style="color:var(--ember)">EMBER</span> = WHAT THE MACRO ADDS</div>
+        </div>
+      </div>
+
+      <div class="card input-card">
+        <div class="card-title"><span class="num">01</span>INPUT</div>
+        <div class="card-body">
+          <div class="control" id="input_gain-control">
+            <div class="label">Trim</div>
+            <canvas class="knob" id="input_gain-knob" width="64" height="64"></canvas>
+            <div class="value" id="input_gain-value"></div>
+            <div class="eff" id="input_gain-eff"></div>
+          </div>
+          <div class="control" id="hpf-control">
+            <div class="label">HPF</div>
+            <canvas class="knob" id="hpf-knob" width="64" height="64"></canvas>
+            <div class="value" id="hpf-value"></div>
+            <div class="eff" id="hpf-eff"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center: stages -->
+    <div class="col-center">
+      <div class="row1">
+        <div class="card">
+          <div class="card-title"><span class="num">02</span>TRANSIENT</div>
+          <div class="card-body">
+            <div class="control" id="transient_attack-control">
+              <div class="label">Attack</div>
+              <canvas class="knob" id="transient_attack-knob" width="68" height="68"></canvas>
+              <div class="value" id="transient_attack-value"></div>
+              <div class="eff" id="transient_attack-eff"></div>
+            </div>
+            <div class="control" id="transient_sustain-control">
+              <div class="label">Sustain</div>
+              <canvas class="knob" id="transient_sustain-knob" width="68" height="68"></canvas>
+              <div class="value" id="transient_sustain-value"></div>
+              <div class="eff" id="transient_sustain-eff"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card eq-card">
+          <div class="card-title"><span class="num">03</span>TONE EQ</div>
+          <div class="card-body">
+            <canvas id="eq-curve" width="370" height="70"></canvas>
+            <div class="eq-knobs">
+              <div class="control" id="eq_kick-control">
+                <div class="label">Kick</div>
+                <canvas class="knob" id="eq_kick-knob" width="56" height="56"></canvas>
+                <div class="value" id="eq_kick-value"></div>
+                <div class="eff" id="eq_kick-eff"></div>
+                <div class="freq">60 Hz</div>
+              </div>
+              <div class="control" id="eq_box-control">
+                <div class="label">Box</div>
+                <canvas class="knob" id="eq_box-knob" width="56" height="56"></canvas>
+                <div class="value" id="eq_box-value"></div>
+                <div class="eff" id="eq_box-eff"></div>
+                <div class="freq">200 Hz</div>
+              </div>
+              <div class="control" id="eq_snare-control">
+                <div class="label">Snare</div>
+                <canvas class="knob" id="eq_snare-knob" width="56" height="56"></canvas>
+                <div class="value" id="eq_snare-value"></div>
+                <div class="eff" id="eq_snare-eff"></div>
+                <div class="freq">3 kHz</div>
+              </div>
+              <div class="control" id="eq_presence-control">
+                <div class="label">Pres</div>
+                <canvas class="knob" id="eq_presence-knob" width="56" height="56"></canvas>
+                <div class="value" id="eq_presence-value"></div>
+                <div class="eff" id="eq_presence-eff"></div>
+                <div class="freq">8 kHz</div>
+              </div>
+              <div class="control" id="eq_air-control">
+                <div class="label">Air</div>
+                <canvas class="knob" id="eq_air-knob" width="56" height="56"></canvas>
+                <div class="value" id="eq_air-value"></div>
+                <div class="eff" id="eq_air-eff"></div>
+                <div class="freq">12 kHz</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="card">
+          <div class="card-title"><span class="num">04</span>PUNCH</div>
+          <div class="card-body with-bar">
+            <div class="control" id="punch-control">
+              <div class="label">Blend</div>
+              <canvas class="knob" id="punch-knob" width="76" height="76"></canvas>
+              <div class="value" id="punch-value"></div>
+              <div class="eff" id="punch-eff"></div>
+            </div>
+            <div class="grbar">
+              <div class="label">GR</div>
+              <canvas id="punch-gr" width="26" height="96"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="num">05</span>HEAT</div>
+          <div class="card-body" style="flex-direction: column; justify-content: center; gap: 2px">
+            <div class="control" id="heat-control">
+              <div class="label">Drive</div>
+              <canvas class="knob" id="heat-knob" width="76" height="76"></canvas>
+              <div class="value" id="heat-value"></div>
+              <div class="eff" id="heat-eff"></div>
+            </div>
+            <div class="heat-caption">HARD · SOFT · TUBE</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="num">06</span>WIDTH</div>
+          <div class="card-body" style="flex-direction: column; justify-content: center; gap: 2px">
+            <div class="control" id="width-control">
+              <div class="label">Side</div>
+              <canvas class="knob" id="width-knob" width="76" height="76"></canvas>
+              <div class="value" id="width-value"></div>
+              <div class="eff" id="width-eff"></div>
+            </div>
+            <div class="heat-caption">MONO &lt; 200 Hz</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="num">07</span>CEILING</div>
+          <div class="card-body with-bar">
+            <div class="control" id="ceiling-control">
+              <div class="label">dBTP</div>
+              <canvas class="knob" id="ceiling-knob" width="76" height="76"></canvas>
+              <div class="value" id="ceiling-value"></div>
+              <div class="eff" id="ceiling-eff"></div>
+            </div>
+            <div class="grbar">
+              <div class="label">GR</div>
+              <canvas id="limiter-gr" width="26" height="96"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: meters -->
+    <div class="card meters">
+      <div class="card-body">
+        <div class="meter-labels"><span class="label">IN</span><span class="label">OUT</span></div>
+        <canvas id="io-meters" width="62" height="420"></canvas>
+        <div class="meter-readouts"><span id="in-readout">-inf</span><span id="out-readout">-inf</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>RITUALANVIL v0.0.0 · LAT 0 smp</span>
+    <span id="lim-readout"><b>LIM GR</b>0.0 dB</span>
+  </div>
+</div>
+
+<script type="module">
+/* =====================================================================
+ * Parameter bridge
+ * Preview: local state only. Production (/impl): route setParam() to the
+ * JUCE frontend relays (getSliderState / getToggleState), and feed meters +
+ * effective values from a native event instead of the simulator / local
+ * MacroMapper below.
+ * ===================================================================== */
+const DEFAULTS = {
+  mix_ready: 0, input_gain: 0, hpf: 40,
+  transient_attack: 0, transient_sustain: 0,
+  eq_kick: 0, eq_box: 0, eq_snare: 0, eq_presence: 0, eq_air: 0,
+  punch: 0, heat: 0, width: 100, ceiling: -0.3, bypass: false,
+};
+const state = { ...DEFAULTS };
+const isJuce = typeof window.__JUCE__ !== "undefined";
+
+function setParam(id, value) {
+  state[id] = value;
+  if (isJuce) {
+    // Wired in /impl via JUCE frontend library.
+  }
+  refreshEffective();
+}
+
+/* ---------- Helpers ---------- */
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C = {
+  bg: css("--bg"), card: css("--card"), hl: css("--surface-hl"), primary: css("--primary"),
+  ember: css("--ember"), danger: css("--danger"), text: css("--text"), dim: css("--text-dim"),
+  border: css("--border"), font: css("--font"),
+};
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function setupHiDPI(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.width, h = canvas.height;
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  return { ctx, w, h };
+}
+
+/* ---------- MacroMapper (mirror of Source/MacroMapper.h) ----------
+ * Additive law: effective = clamp(manual + offset(t)).
+ * HPF uses a floor that rises 20 → 50 Hz with t (no jump at t = 0).
+ */
+function computeEffective(s) {
+  const t = clamp(s.mix_ready / 100, 0, 1);
+  const punchBlend = clamp(s.punch / 100 * 0.5 + clamp((t - 0.4) * 0.5 / 0.6, 0, 0.5), 0, 0.5);
+  return {
+    mix_ready: s.mix_ready,
+    input_gain: s.input_gain,
+    hpf: Math.max(s.hpf, 20 + 30 * t),
+    transient_attack: clamp(s.transient_attack + (t > 0.5 ? (t - 0.5) * 8 : 0), -12, 12),
+    // triangle dip: 0 at t=0, −3 dB at t=0.25, back to 0 at t=0.5 (continuous)
+    transient_sustain: clamp(s.transient_sustain + (t < 0.5 ? -3 * (1 - Math.abs(t - 0.25) / 0.25) : 0), -12, 6),
+    eq_kick: clamp(s.eq_kick + 4 * t, -12, 12),
+    eq_box: clamp(s.eq_box - 3 * t, -12, 12),
+    eq_snare: clamp(s.eq_snare + 3 * t, -12, 12),
+    eq_presence: clamp(s.eq_presence + 2 * t, -12, 12),
+    eq_air: clamp(s.eq_air + 4 * t, -12, 12),
+    punch: punchBlend / 0.5 * 100,
+    heat: clamp(s.heat + (t > 0.6 ? (t - 0.6) * 15 : 0), 0, 20),
+    width: clamp(s.width + clamp((t - 0.5) * 2, 0, 1) * 20, 50, 150),
+    ceiling: s.ceiling,
+  };
+}
+let eff = computeEffective(state);
+
+/* ---------- Rotary knob ---------- */
+class Knob {
+  constructor(id, { min, max, def, neutral, toNorm, fromNorm, format, glow }) {
+    this.canvas = document.getElementById(id + "-knob");
+    this.valueEl = document.getElementById(id + "-value");
+    this.effEl = document.getElementById(id + "-eff");
+    Object.assign(this, { id, min, max, def, format, glow });
+    this.toNorm = toNorm || (v => (v - min) / (max - min));
+    this.fromNorm = fromNorm || (n => min + n * (max - min));
+    this.originNorm = neutral === undefined ? 0 : this.toNorm(neutral);
+    const { ctx, w } = setupHiDPI(this.canvas);
+    this.ctx = ctx; this.size = w;
+    this.norm = this.toNorm(def);
+    this.effValue = def;
+    this.hover = false; this.dragging = false;
+    this.bind();
+    this.render();
+  }
+  bind() {
+    const c = this.canvas;
+    let lastY = 0;
+    c.addEventListener("pointerdown", e => {
+      c.setPointerCapture(e.pointerId); this.dragging = true; lastY = e.clientY; this.render();
+    });
+    c.addEventListener("pointermove", e => {
+      if (!this.dragging) return;
+      const dy = lastY - e.clientY; lastY = e.clientY;
+      this.setNorm(this.norm + dy * (e.shiftKey ? 0.001 : 0.005));
+    });
+    const end = () => { this.dragging = false; this.render(); };
+    c.addEventListener("pointerup", end);
+    c.addEventListener("pointercancel", end);
+    c.addEventListener("pointerenter", () => { this.hover = true; this.render(); });
+    c.addEventListener("pointerleave", () => { this.hover = false; this.render(); });
+    c.addEventListener("wheel", e => {
+      e.preventDefault();
+      this.setNorm(this.norm - Math.sign(e.deltaY) * (e.shiftKey ? 0.005 : 0.025));
+    }, { passive: false });
+    c.addEventListener("dblclick", () => this.setNorm(this.toNorm(this.def)));
+  }
+  get value() { return this.fromNorm(this.norm); }
+  setNorm(n) {
+    this.norm = clamp(n, 0, 1);
+    setParam(this.id, this.value);   // triggers refreshEffective → render
+  }
+  setEffective(v) { this.effValue = v; this.render(); }
+  render() {
+    const { ctx, size: s } = this;
+    const cx = s / 2, cy = s / 2, r = s / 2 - 6;
+    const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
+    const ang = n => a0 + (a1 - a0) * n;
+    const av = ang(this.norm);
+    const effNorm = clamp(this.toNorm(this.effValue), 0, 1);
+    const hasGhost = Math.abs(effNorm - this.norm) > 0.002;
+    ctx.clearRect(0, 0, s, s);
+
+    // heat glow (behind body)
+    if (this.glow) {
+      const g = this.glow();
+      if (g > 0.001) {
+        const grd = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r + 4);
+        grd.addColorStop(0, `rgba(255,90,31,${0.55 * g})`);
+        grd.addColorStop(1, "rgba(255,90,31,0)");
+        ctx.fillStyle = grd;
+        ctx.beginPath(); ctx.arc(cx, cy, r + 4, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    // body
+    ctx.beginPath(); ctx.arc(cx, cy, r - 6, 0, Math.PI * 2);
+    ctx.fillStyle = C.hl; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = C.border; ctx.stroke();
+
+    // track
+    ctx.lineCap = "round";
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1);
+    ctx.strokeStyle = this.hover || this.dragging ? C.border : C.bg; ctx.stroke();
+
+    // value arc (from origin)
+    if (Math.abs(this.norm - this.originNorm) > 0.002) {
+      ctx.save();
+      if (this.dragging) { ctx.shadowColor = C.primary; ctx.shadowBlur = 8; }
+      const lo = Math.min(this.norm, this.originNorm), hi = Math.max(this.norm, this.originNorm);
+      ctx.beginPath(); ctx.arc(cx, cy, r, ang(lo), ang(hi));
+      ctx.strokeStyle = C.primary; ctx.stroke();
+      ctx.restore();
+    }
+    // origin tick for bipolar knobs
+    if (this.originNorm > 0.001) {
+      const ao = ang(this.originNorm);
+      ctx.lineWidth = 1; ctx.strokeStyle = C.dim;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ao) * (r + 3), cy + Math.sin(ao) * (r + 3));
+      ctx.lineTo(cx + Math.cos(ao) * (r + 5.5), cy + Math.sin(ao) * (r + 5.5));
+      ctx.stroke();
+    }
+
+    // macro ghost arc (manual → effective)
+    if (hasGhost) {
+      const lo = Math.min(this.norm, effNorm), hi = Math.max(this.norm, effNorm);
+      ctx.save();
+      ctx.shadowColor = C.ember; ctx.shadowBlur = 6;
+      ctx.lineWidth = 3; ctx.lineCap = "butt";
+      ctx.beginPath(); ctx.arc(cx, cy, r, ang(lo), ang(hi));
+      ctx.strokeStyle = C.ember; ctx.stroke();
+      const ae = ang(effNorm);
+      ctx.beginPath(); ctx.arc(cx + Math.cos(ae) * r, cy + Math.sin(ae) * r, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = C.ember; ctx.fill();
+      ctx.restore();
+    }
+
+    // pointer (manual position)
+    const ri = (r - 6) * 0.35, ro = (r - 6) * 0.72;
+    ctx.lineWidth = 2; ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(av) * ri, cy + Math.sin(av) * ri);
+    ctx.lineTo(cx + Math.cos(av) * ro, cy + Math.sin(av) * ro);
+    ctx.strokeStyle = C.text; ctx.stroke();
+
+    this.valueEl.textContent = this.format(this.value);
+    if (this.effEl) {
+      this.effEl.textContent = hasGhost ? "→ " + this.format(this.effValue, true) : "";
+      this.effEl.classList.toggle("on", hasGhost);
+    }
+  }
+}
+
+/* ---------- Hero dial: Mix Ready ---------- */
+class HeroDial {
+  constructor(id, def) {
+    this.id = id; this.def = def;
+    this.canvas = document.getElementById(id + "-knob");
+    const { ctx, w } = setupHiDPI(this.canvas);
+    this.ctx = ctx; this.size = w;
+    this.norm = def / 100;
+    this.dragging = false;
+    const c = this.canvas;
+    let lastY = 0;
+    c.addEventListener("pointerdown", e => { c.setPointerCapture(e.pointerId); this.dragging = true; lastY = e.clientY; this.render(); });
+    c.addEventListener("pointermove", e => {
+      if (!this.dragging) return;
+      const dy = lastY - e.clientY; lastY = e.clientY;
+      this.set(this.norm + dy * (e.shiftKey ? 0.001 : 0.004));
+    });
+    const end = () => { this.dragging = false; this.render(); };
+    c.addEventListener("pointerup", end);
+    c.addEventListener("pointercancel", end);
+    c.addEventListener("wheel", e => { e.preventDefault(); this.set(this.norm - Math.sign(e.deltaY) * (e.shiftKey ? 0.005 : 0.02)); }, { passive: false });
+    c.addEventListener("dblclick", () => this.set(this.def / 100));
+    this.render();
+  }
+  set(n) { this.norm = clamp(n, 0, 1); setParam(this.id, this.norm * 100); this.render(); }
+  render() {
+    const { ctx, size: s } = this;
+    const cx = s / 2, cy = s / 2, r = s / 2 - 18;
+    const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
+    const ang = n => a0 + (a1 - a0) * n;
+    const t = this.norm;
+    ctx.clearRect(0, 0, s, s);
+
+    // ticks
+    for (let i = 0; i <= 10; i++) {
+      const n = i / 10, a = ang(n);
+      ctx.strokeStyle = n <= t + 1e-6 && t > 0 ? C.text : C.border;
+      ctx.lineWidth = i % 5 === 0 ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * (r + 9), cy + Math.sin(a) * (r + 9));
+      ctx.lineTo(cx + Math.cos(a) * (r + (i % 5 === 0 ? 15 : 13)), cy + Math.sin(a) * (r + (i % 5 === 0 ? 15 : 13)));
+      ctx.stroke();
+    }
+
+    // inner face
+    ctx.beginPath(); ctx.arc(cx, cy, r - 14, 0, Math.PI * 2);
+    ctx.fillStyle = C.hl; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = C.border; ctx.stroke();
+
+    // track
+    ctx.lineCap = "round"; ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1);
+    ctx.strokeStyle = C.bg; ctx.stroke();
+
+    // value arc: amber → ember, drawn as short segments for an angular gradient
+    if (t > 0.002) {
+      ctx.save();
+      ctx.shadowColor = C.ember; ctx.shadowBlur = 4 + 20 * t;
+      const steps = Math.max(2, Math.ceil(t * 60));
+      ctx.lineCap = "butt";
+      for (let i = 0; i < steps; i++) {
+        const n0 = (i / steps) * t, n1 = ((i + 1) / steps) * t + 0.002;
+        const mix = (n0 + n1) / 2;                       // position along full sweep
+        const rr = Math.round(255), gg = Math.round(195 + (90 - 195) * mix), bb = Math.round(0 + 31 * mix);
+        ctx.strokeStyle = `rgb(${rr},${gg},${bb})`;
+        ctx.beginPath(); ctx.arc(cx, cy, r, ang(n0), ang(Math.min(n1, t))); ctx.stroke();
+      }
+      ctx.restore();
+      // end cap dot
+      const ae = ang(t);
+      ctx.beginPath(); ctx.arc(cx + Math.cos(ae) * r, cy + Math.sin(ae) * r, 6.5, 0, Math.PI * 2);
+      ctx.fillStyle = C.text; ctx.fill();
+    }
+
+    // center readout
+    ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = C.text;
+    ctx.font = `700 40px ${C.font}`;
+    const txt = String(Math.round(t * 100));
+    ctx.fillText(txt, cx - 6, cy + 10);
+    const tw = ctx.measureText(txt).width;
+    ctx.font = `400 14px ${C.font}`;
+    ctx.fillStyle = C.dim;
+    ctx.textAlign = "left";
+    ctx.fillText("%", cx - 6 + tw / 2 + 3, cy + 10);
+    ctx.textAlign = "center";
+    ctx.font = `600 9px ${C.font}`;
+    ctx.fillText(t > 0 ? "FORGING" : "RAW", cx, cy + 30);
+  }
+}
+
+/* ---------- Formatters ---------- */
+const sgn = (v, d = 1) => (v > 0.0005 ? "+" : v < -0.0005 ? "" : "") + v.toFixed(d);
+const fmtDb = (v, short) => short ? sgn(v) : `${sgn(v)} dB`;
+const fmtHz = (v, short) => short ? `${Math.round(v)}` : `${Math.round(v)} Hz`;
+const fmtPct = (v, short) => short ? `${Math.round(v)}` : `${Math.round(v)} %`;
+const fmtHeat = (v, short) => short ? v.toFixed(1) : `${v.toFixed(1)} dB`;
+const fmtCeil = v => `${v.toFixed(1)}`;
+
+/* HPF log taper 20–100 Hz */
+const hpfToNorm = v => Math.log(v / 20) / Math.log(5);
+const hpfFromNorm = n => 20 * Math.pow(5, n);
+
+const knobs = {};
+const mk = (id, opts) => (knobs[id] = new Knob(id, { def: DEFAULTS[id], ...opts }));
+
+mk("input_gain",        { min: -12, max: 12, neutral: 0, format: fmtDb });
+mk("hpf",               { min: 20, max: 100, toNorm: hpfToNorm, fromNorm: hpfFromNorm, format: fmtHz });
+mk("transient_attack",  { min: -12, max: 12, neutral: 0, format: fmtDb });
+mk("transient_sustain", { min: -12, max: 6, neutral: 0, format: fmtDb });
+["eq_kick", "eq_box", "eq_snare", "eq_presence", "eq_air"].forEach(id =>
+  mk(id, { min: -12, max: 12, neutral: 0, format: fmtDb }));
+mk("punch",             { min: 0, max: 100, format: fmtPct });
+mk("heat",              { min: 0, max: 20, format: fmtHeat, glow: () => eff.heat / 20 });
+mk("width",             { min: 50, max: 150, neutral: 100, format: fmtPct });
+mk("ceiling",           { min: -1, max: -0.1, format: fmtCeil });
+
+const hero = new HeroDial("mix_ready", DEFAULTS.mix_ready);
+
+/* ---------- EQ curve ---------- */
+const eqc = setupHiDPI(document.getElementById("eq-curve"));
+const FS = 48000;
+const BANDS = [
+  { id: "eq_kick", f: 60, q: 1.0 },
+  { id: "eq_box", f: 200, q: 1.0 },
+  { id: "eq_snare", f: 3000, q: 1.0 },
+  { id: "eq_presence", f: 8000, q: 0.707 },
+  { id: "eq_air", f: 12000, q: 0.5 },
+];
+function biquadMagDb(b, f) {
+  const w = 2 * Math.PI * f / FS;
+  const cos1 = Math.cos(w), sin1 = Math.sin(w), cos2 = Math.cos(2 * w), sin2 = Math.sin(2 * w);
+  const nr = b.b0 + b.b1 * cos1 + b.b2 * cos2, ni = -(b.b1 * sin1 + b.b2 * sin2);
+  const dr = 1 + b.a1 * cos1 + b.a2 * cos2, di = -(b.a1 * sin1 + b.a2 * sin2);
+  return 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di));
+}
+function peak(f0, q, gainDb) {               // RBJ peaking
+  const A = Math.pow(10, gainDb / 40), w = 2 * Math.PI * f0 / FS, al = Math.sin(w) / (2 * q);
+  const a0 = 1 + al / A;
+  return { b0: (1 + al * A) / a0, b1: -2 * Math.cos(w) / a0, b2: (1 - al * A) / a0, a1: -2 * Math.cos(w) / a0, a2: (1 - al / A) / a0 };
+}
+function hpf2(f0) {                          // RBJ high-pass, Q 0.707
+  const w = 2 * Math.PI * f0 / FS, al = Math.sin(w) / (2 * 0.7071), c = Math.cos(w), a0 = 1 + al;
+  return { b0: (1 + c) / 2 / a0, b1: -(1 + c) / a0, b2: (1 + c) / 2 / a0, a1: -2 * c / a0, a2: (1 - al) / a0 };
+}
+function responseDb(vals, f) {
+  let db = biquadMagDb(hpf2(vals.hpf), f);
+  BANDS.forEach(b => { if (Math.abs(vals[b.id]) > 0.01) db += biquadMagDb(peak(b.f, b.q, vals[b.id]), f); });
+  return db;
+}
+function drawEQ() {
+  const { ctx, w, h } = eqc;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = C.bg;
+  ctx.beginPath(); ctx.roundRect(0, 0, w, h, 3); ctx.fill();
+  const fx = f => (Math.log10(f / 20) / 3) * w;
+  const RANGE = 15, dy = db => h / 2 - (db / RANGE) * (h / 2 - 4);
+
+  // grid
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(58,58,69,0.6)";
+  [100, 1000, 10000].forEach(f => { ctx.beginPath(); ctx.moveTo(fx(f) + 0.5, 0); ctx.lineTo(fx(f) + 0.5, h); ctx.stroke(); });
+  ctx.strokeStyle = C.border;
+  ctx.beginPath(); ctx.moveTo(0, dy(0) + 0.5); ctx.lineTo(w, dy(0) + 0.5); ctx.stroke();
+  ctx.fillStyle = C.dim; ctx.font = `8px ${C.font}`; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  [[100, "100"], [1000, "1k"], [10000, "10k"]].forEach(([f, l]) => ctx.fillText(l, fx(f) + 3, 3));
+
+  const N = 160;
+  const path = vals => {
+    const pts = [];
+    for (let i = 0; i <= N; i++) {
+      const f = 20 * Math.pow(1000, i / N);
+      pts.push([fx(f), dy(clamp(responseDb(vals, f), -RANGE, RANGE))]);
+    }
+    return pts;
+  };
+  const stroke = (pts, color) => {
+    ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+  };
+
+  const manual = path(state);
+  if (state.mix_ready > 0) {
+    const effPts = path(eff);
+    ctx.beginPath(); effPts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.lineTo(w, dy(0)); ctx.lineTo(0, dy(0)); ctx.closePath();
+    ctx.fillStyle = "rgba(255,90,31,0.10)"; ctx.fill();
+    stroke(manual, "rgba(255,195,0,0.55)");
+    stroke(effPts, C.ember);
+  } else {
+    stroke(manual, C.primary);
+  }
+}
+
+/* ---------- Effective-value refresh ---------- */
+function refreshEffective() {
+  eff = computeEffective(state);
+  Object.values(knobs).forEach(k => k.setEffective(eff[k.id]));
+  drawEQ();
+}
+refreshEffective();
+
+/* ---------- Power / bypass ---------- */
+const powerEl = document.getElementById("bypass-control");
+powerEl.addEventListener("click", () => {
+  setParam("bypass", !state.bypass);
+  powerEl.classList.toggle("on", !state.bypass);
+  document.getElementById("plugin-ui").classList.toggle("bypassed", state.bypass);
+});
+
+/* ---------- Meters ---------- */
+const io = setupHiDPI(document.getElementById("io-meters"));
+const pgr = setupHiDPI(document.getElementById("punch-gr"));
+const lgr = setupHiDPI(document.getElementById("limiter-gr"));
+const M_MIN = -48;
+const mPos = db => clamp((db - M_MIN) / -M_MIN, 0, 1);
+
+function drawIO(inDb, outDb, inHold, outHold) {
+  const { ctx, w, h } = io;
+  ctx.clearRect(0, 0, w, h);
+  const bw = 16, top = 4, bot = h - 4, mh = bot - top;
+  const xs = [4, w - 4 - bw];
+  const y = db => bot - mPos(db) * mh;
+
+  // scale
+  ctx.fillStyle = C.dim; ctx.font = `8px ${C.font}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  [0, -3, -6, -12, -24, -36, -48].forEach(db => ctx.fillText(String(db), w / 2, y(db)));
+
+  [[inDb, inHold], [outDb, outHold]].forEach(([lvl, hold], i) => {
+    const x = xs[i];
+    ctx.fillStyle = C.bg;
+    ctx.beginPath(); ctx.roundRect(x, top, bw, mh, 2); ctx.fill();
+    const yl = y(lvl), y3 = y(-3);
+    ctx.fillStyle = C.primary;
+    ctx.fillRect(x + 2, Math.max(yl, y3), bw - 4, bot - Math.max(yl, y3) - 2);
+    if (yl < y3) { ctx.fillStyle = C.danger; ctx.fillRect(x + 2, yl, bw - 4, y3 - yl); }
+    ctx.fillStyle = C.text;
+    ctx.fillRect(x + 2, y(hold) - 0.5, bw - 4, 1);
+  });
+
+  // ceiling marker on OUT
+  const yc = y(state.ceiling);
+  ctx.strokeStyle = C.danger; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(xs[1] - 3, yc + 0.5); ctx.lineTo(xs[1] + bw + 3, yc + 0.5); ctx.stroke();
+}
+
+function drawGR(m, grDb, maxDb, color, active) {
+  const { ctx, w, h } = m;
+  ctx.clearRect(0, 0, w, h);
+  const bw = 8, x = 2, top = 2, bot = h - 2;
+  ctx.fillStyle = C.bg;
+  ctx.beginPath(); ctx.roundRect(x, top, bw, bot - top, 2); ctx.fill();
+  const frac = clamp(grDb / maxDb, 0, 1);
+  if (frac > 0.001) {
+    ctx.globalAlpha = active ? 1 : 0.35;
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 1.5, top + 1, bw - 3, (bot - top - 2) * frac);
+    ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = C.dim; ctx.font = `8px ${C.font}`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  [0, maxDb / 2, maxDb].forEach(d => ctx.fillText(d === 0 ? "0" : `-${d}`, x + bw + 3, top + 4 + (bot - top - 8) * (d / maxDb)));
+}
+
+/* ---------- Meter simulator (preview only) ---------- */
+const inRO = document.getElementById("in-readout"), outRO = document.getElementById("out-readout");
+const limRO = document.getElementById("lim-readout");
+let mIn = -60, mOut = -60, hIn = -60, hOut = -60, hInT = 0, hOutT = 0, gP = 0, gL = 0, lastT = performance.now();
+
+function ballistic(cur, target, dt, relDbPerSec = 24) {
+  return target > cur ? target : Math.max(target, cur - relDbPerSec * dt);
+}
+
+function simulate(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  const t = now / 1000;
+
+  // fake drum program: kick on beats, snare on 2 & 4, hats noise
+  const kick = Math.exp(-(t % 0.5) / 0.08);
+  const snare = Math.exp(-((t + 0.5) % 1.0) / 0.11) * 0.8;
+  const hats = 0.25 + Math.random() * 0.1;
+  const env = Math.max(kick, snare, hats * 0.35);
+  const sig = -32 + 24 * env + (Math.random() - 0.5) * 2;            // dBFS
+
+  const e = eff;
+  const inDb = sig + e.input_gain;
+  // Punch comp detector (−20 dB, 8:1) and its contribution
+  const blend = e.punch / 100 * 0.5;
+  const pTarget = Math.max(0, (inDb + 6 - -20) * (1 - 1 / 8));
+  gP += (pTarget - gP) * (1 - Math.exp(-dt / (pTarget > gP ? 0.003 : 0.15)));
+  const eqLift = (e.eq_kick * kick + e.eq_snare * snare + (e.eq_presence + e.eq_air) * 0.3) * 0.35;
+  const pre = inDb + 6 + eqLift + e.transient_attack * env * 0.3 + blend * 6 + e.heat * 0.35;
+  const lTarget = Math.max(0, pre - e.ceiling);
+  gL += (lTarget - gL) * (1 - Math.exp(-dt / (lTarget > gL ? 0.0015 : 0.15)));
+  const outDb = state.bypass ? inDb : Math.min(pre - gL, e.ceiling);
+
+  mIn = ballistic(mIn, inDb, dt); mOut = ballistic(mOut, outDb, dt);
+  if (mIn >= hIn || now - hInT > 1200) { hIn = mIn; hInT = now; }
+  if (mOut >= hOut || now - hOutT > 1200) { hOut = mOut; hOutT = now; }
+
+  drawIO(mIn, mOut, hIn, hOut);
+  drawGR(pgr, state.bypass ? 0 : gP, 20, C.ember, blend > 0.001);
+  drawGR(lgr, state.bypass ? 0 : gL, 12, C.danger, true);
+  inRO.textContent = hIn.toFixed(1);
+  outRO.textContent = hOut.toFixed(1);
+  limRO.innerHTML = `<b>LIM GR</b>${(state.bypass ? 0 : -gL).toFixed(1)} dB`;
+  requestAnimationFrame(simulate);
+}
+requestAnimationFrame(simulate);
+</script>
+</body>
+</html>
