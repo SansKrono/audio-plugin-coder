@@ -23,12 +23,12 @@ endif()
 
 juce_add_plugin(RitualComp76
     VERSION 0.0.1
-    COMPANY_NAME "Noizefield"
-    PLUGIN_MANUFACTURER_CODE Noiz
+    COMPANY_NAME "SansKrono"
+    PLUGIN_MANUFACTURER_CODE SnKr
     PLUGIN_CODE Rc76
     FORMATS ${RC76_FORMATS}
     PRODUCT_NAME "RitualComp76"
-    BUNDLE_ID "com.noizefield.ritualcomp76"
+    BUNDLE_ID "com.SansKrono.RitualComp76"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
@@ -37,7 +37,7 @@ juce_add_plugin(RitualComp76
     COPY_PLUGIN_AFTER_BUILD FALSE
     AU_MAIN_TYPE kAudioUnitType_Effect
     VST3_CATEGORIES Fx Dynamics
-    LV2URI "https://noizefield.com/plugins/ritualcomp76"
+    LV2URI "urn:sanskrono:ritualcomp76"
     NEEDS_WEBVIEW2 ${RC76_NEEDS_WEBVIEW2}
     NEEDS_WEB_BROWSER ${RC76_NEEDS_WEB_BROWSER}
 )
@@ -96,7 +96,6 @@ target_compile_definitions(RitualComp76
         JUCE_WEB_BROWSER=1
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
-        JUCE_DISPLAY_SPLASH_SCREEN=0
 )
 
 if(WIN32)
