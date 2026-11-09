@@ -5,8 +5,8 @@
 
 namespace
 {
-    constexpr int editorWidth  = 1000;
-    constexpr int editorHeight = 600;
+    constexpr int editorWidth  = 1100;
+    constexpr int editorHeight = 660;
     constexpr int meterHz      = 30;
 }
 
@@ -19,7 +19,8 @@ RitualAnvilAudioProcessorEditor::RitualAnvilAudioProcessorEditor (RitualAnvilAud
    #if JUCE_WINDOWS
     options = options.withBackend (juce::WebBrowserComponent::Options::Backend::webview2)
                      .withWinWebView2Options (juce::WebBrowserComponent::Options::WinWebView2{}
-                                                  .withUserDataFolder (juce::File::getSpecialLocation (juce::File::SpecialLocationType::tempDirectory)));
+                                                  .withUserDataFolder (juce::File::getSpecialLocation (juce::File::SpecialLocationType::tempDirectory))
+                                                  .withBackgroundColour (juce::Colour (0xff1a110d)));   // no white flash before the page paints
    #endif
 
     // Relays (members) → WebBrowserComponent
@@ -56,7 +57,7 @@ RitualAnvilAudioProcessorEditor::~RitualAnvilAudioProcessorEditor()
 //==============================================================================
 void RitualAnvilAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff1a1a1f));
+    g.fillAll (juce::Colour (0xff1a110d));   // GlassKit forge base (--gl-color-bg-mid)
 }
 
 void RitualAnvilAudioProcessorEditor::resized()

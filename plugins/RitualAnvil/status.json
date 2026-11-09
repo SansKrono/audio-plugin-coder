@@ -5,7 +5,7 @@
     "ui_framework": "webview",
     "complexity_score": 3,
     "created_at": "2026-11-09T15:40:39+11:00",
-    "last_modified": "2026-11-09T16:41:26+11:00",
+    "last_modified": "2026-11-09T17:00:31+11:00",
     "phase_history": [
         {
             "phase": "ideation",
@@ -57,9 +57,10 @@
         "macro_law": "additive offset, clamped to param range; HPF floor max(manual, 20+30t); sustain not driven by macro (dip removed after 4.1.3 review)"
     },
     "design": {
-        "approved_version": "v1",
-        "source": "design_library/amber-signal",
-        "preview": "Design/v1-test.html"
+        "approved_version": "v2",
+        "source": "_tools/GlassKit 1.40.0 (vendored to Source/ui/public/css) + Anvil forge theme override",
+        "preview": "Design/v2-test.html",
+        "previous": "v1 (design_library/amber-signal)"
     },
     "implementation": {
         "completed_phases": [
@@ -81,7 +82,9 @@
         "renders": "build/RitualAnvil_renders",
         "pending": [
             "by-ear voicing sign-off (Mix Ready + Heat)",
-            "open editor in a DAW"
-        ]
+            "open editor in a DAW (Standalone checked)",
+            "macOS: brief white flash while the WebView loads (no JUCE option on mac)"
+        ],
+        "ui": "v2 GlassKit, 1100x660; verified in Standalone (WKWebView)"
     }
 }

@@ -16,6 +16,8 @@
 - [x] v1-test.html preview (ghost arcs, EQ curve, IN/OUT + GR meters)
 - [x] Design approved (v1)
 
+- [x] v2 redesign with GlassKit (forge aurora, glass knobs, 1100×660), approved
+
 ## Phase 4: CODE (/impl)
 - [x] 4.1.1 Core signal path (60 offline checks pass)
 - [x] 4.1.2 Quality & optimization (OS Heat, TP limiter, latency 157 smp @ 48 k, 0 allocs, CPU ~3.3 %)
@@ -23,7 +25,9 @@
 - [x] Mix Ready 25 % loudness dip removed (sustain no longer macro-driven)
 - [ ] By-ear voicing sign-off: Mix Ready curve + Heat character, renders in build/RitualAnvil_renders
 - [x] 4.2 Port v1-test.html → WebUI, relays, meter + effective-value events (done with 4.1.1)
-- [ ] Open the editor in a DAW and confirm the WebView UI (only browser preview + pluginval GUI test so far)
+- [x] v2 GlassKit UI ported to Source/ui/public; checked in the Standalone (WKWebView) + pluginval editor tests
+- [ ] Open the editor in a DAW (CPU/GPU of ~10 backdrop-filter layers; fallback data-surface="solid")
+- [ ] macOS: brief white flash while the WebView loads
 
 ## Phase 5: SHIP
 - [ ] Build, test, package

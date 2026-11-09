@@ -1,236 +1,167 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RitualAnvil Plugin</title>
+<!-- GlassKit 1.40.0 (MIT, css/GLASSKIT-LICENSE.txt), vendored from _tools/GlassKit -->
+<link rel="stylesheet" href="css/glasskit.css">
 <script type="module" src="js/index.js"></script>
 <style>
-  :root {
-    --bg: #101014;
-    --surface: #1A1A1F;
-    --card: #151519;
-    --surface-hl: #292930;
-    --primary: #FFC300;
-    --primary-dim: rgba(255, 195, 0, 0.16);
-    --ember: #FF5A1F;
-    --ember-dim: rgba(255, 90, 31, 0.18);
-    --danger: #FF4D3D;
-    --text: #F0F0F5;
-    --text-dim: #A0A0A5;
-    --border: #3A3A45;
-    --font: "Roboto Mono", "SF Mono", Menlo, Consolas, monospace;
+  /* ================= Anvil theme override (GlassKit tokens) ================= */
+  :root, [data-theme="dark"] {
+    --gl-color-primary:       #FFC300;
+    --gl-color-primary-dark:  #FF5A1F;
+    --gl-color-bg-light:      #2a1a12;
+    --gl-color-bg-mid:        #1a110d;
+    --gl-color-bg-dark:       #0c0807;
+    --gl-bg-aurora-1:         rgba(255, 90, 31, 0.20);
+    --gl-bg-aurora-2:         rgba(255, 195, 0, 0.10);
+    --gl-bg-aurora-3:         rgba(150, 70, 30, 0.22);
+    --gl-bg-light-streak-1:   rgba(255, 150, 70, 0.10);
+    --gl-bg-light-streak-2:   rgba(255, 150, 70, 0.07);
+    --gl-bg-warm-glow:        rgba(255, 90, 31, 0.10);
+
+    --anvil-ember:   #FF5A1F;
+    --anvil-well:    rgba(0, 0, 0, 0.28);
+    --anvil-danger:  #FF4D3D;
+    --anvil-card-pad: 12px 14px;
+    --anvil-card-radius: 18px;
   }
 
   * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; -webkit-user-select: none; user-select: none; }
+  html { overflow: hidden; }   /* GlassKit's aurora streak is 160 % wide: never let the plugin window scroll */
 
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font);
-    -webkit-user-select: none;
-    user-select: none;
+  body.glass-bg {
+    width: 1100px; height: 660px; min-height: 0;
+    overflow: hidden;
   }
 
-  body { width: 1000px; height: 600px; overflow: hidden; }
-
-  #plugin-ui {
-    width: 1000px;
-    height: 600px;
-    display: flex;
-    flex-direction: column;
-    background: var(--surface);
-    border-top: 3px solid var(--primary);
-  }
+  #plugin-ui { width: 1100px; height: 660px; display: flex; flex-direction: column; }
 
   /* ---------- Header ---------- */
   .header {
-    height: 48px;
-    flex: none;
-    padding: 0 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 1px solid var(--border);
+    height: 54px; flex: none;
+    padding: 0 22px;
+    display: flex; align-items: center; justify-content: space-between;
   }
   .brand { display: flex; align-items: baseline; gap: 14px; }
-  .wordmark { font-size: 15px; font-weight: 700; letter-spacing: 0.18em; }
-  .wordmark span { color: var(--primary); }
-  .subtitle { font-size: 10px; letter-spacing: 0.14em; color: var(--text-dim); }
+  .wordmark { font-size: 17px; font-weight: 700; letter-spacing: 0.16em; }
+  .wordmark span { color: var(--gl-color-primary); }
+  .subtitle { font-size: 11px; font-weight: 500; letter-spacing: 0.14em; color: var(--gl-color-text-muted); }
 
-  .power {
-    width: 30px; height: 30px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--surface-hl);
-    display: grid; place-items: center;
-    cursor: pointer;
-    transition: border-color .15s, box-shadow .15s;
-  }
-  .power svg { width: 14px; height: 14px; stroke: var(--text-dim); transition: stroke .15s; }
-  .power.on { border-color: var(--primary); box-shadow: 0 0 10px rgba(255,195,0,0.35); }
-  .power.on svg { stroke: var(--primary); }
+  .power.glass-pill svg { stroke: var(--gl-color-text-muted); transition: stroke .15s; }
+  .power.glass-pill.on { border-color: color-mix(in srgb, var(--gl-color-primary) 60%, transparent);
+                         box-shadow: 0 0 16px color-mix(in srgb, var(--gl-color-primary) 45%, transparent), var(--gl-inset-medium); }
+  .power.glass-pill.on svg { stroke: var(--gl-color-primary); }
 
   /* ---------- Body ---------- */
   .body {
-    flex: 1;
-    min-height: 0;
+    flex: 1; min-height: 0;
     display: grid;
-    grid-template-columns: 268px 1fr 76px;
+    grid-template-columns: 300px 1fr 84px;
     column-gap: 14px;
-    padding: 14px 20px;
+    padding: 4px 22px 12px;
     transition: opacity .2s;
   }
   #plugin-ui.bypassed .body { opacity: 0.55; }
 
-  .col-left { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-  .col-center {
-    display: grid;
-    grid-template-rows: 1fr 1fr;
-    row-gap: 12px;
-    min-height: 0;
-  }
-  .row1 { display: grid; grid-template-columns: 176px 1fr; column-gap: 12px; min-height: 0; }
-  .row2 { display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 12px; min-height: 0; }
+  .col-left { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .col-center { display: grid; grid-template-rows: 1fr 1fr; row-gap: 14px; min-height: 0; }
+  .row1 { display: grid; grid-template-columns: 196px 1fr; column-gap: 14px; min-height: 0; }
+  .row2 { display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 14px; min-height: 0; }
 
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
+  /* GlassKit card, tightened for plugin density */
+  .card.glass-card {
+    padding: var(--anvil-card-pad);
+    border-radius: var(--anvil-card-radius);
+    display: flex; flex-direction: column; min-height: 0;
   }
   .card-title {
-    height: 18px;
-    flex: none;
-    font-size: 10px; font-weight: 600; letter-spacing: 0.16em;
-    color: var(--text);
+    height: 22px; flex: none;
     display: flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 650; letter-spacing: 0.14em; text-transform: uppercase;
   }
-  .card-title .num { color: var(--primary); opacity: 0.7; }
-  .card-title .note { margin-left: auto; font-size: 9px; font-weight: 400; color: var(--text-dim); letter-spacing: 0.08em; }
-  .card-body {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: space-around;
-    gap: 8px;
-    min-height: 0;
-  }
+  .card-title .glass-badge { padding: 1px 7px; font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
+  .card-title .note { margin-left: auto; }
+  .card-body { flex: 1; display: flex; align-items: center; justify-content: space-around; gap: 8px; min-height: 0; }
 
-  .control { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .label {
-    font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
-    text-transform: uppercase; color: var(--text-dim);
-    margin-bottom: 2px;
-  }
-  .value {
-    font-size: 11px; font-weight: 500;
-    font-variant-numeric: tabular-nums;
-    color: var(--text);
-    white-space: nowrap;
-    min-height: 14px;
-  }
-  .eff {
-    font-size: 10px; font-weight: 500;
-    font-variant-numeric: tabular-nums;
-    color: var(--ember);
-    white-space: nowrap;
-    min-height: 12px;
-    visibility: hidden;
-  }
+  .control { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .label { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gl-color-text-muted); margin-bottom: 2px; }
+  .value { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; min-height: 15px; }
+  .eff { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--anvil-ember); white-space: nowrap; min-height: 13px; visibility: hidden; }
   .eff.on { visibility: visible; }
   .knob { cursor: ns-resize; touch-action: none; display: block; }
+  .caption { font-size: 9px; letter-spacing: 0.1em; color: var(--gl-color-text-muted); text-align: center; line-height: 1.5; }
 
   /* ---------- Hero ---------- */
-  .hero { flex: 1; align-items: center; }
-  .hero .card-body { flex-direction: column; justify-content: center; gap: 6px; }
-  #mix_ready-knob { cursor: ns-resize; touch-action: none; }
-  .hero-caption { font-size: 9px; letter-spacing: 0.14em; color: var(--text-dim); text-align: center; line-height: 1.5; }
+  .hero { flex: 1; }
+  .hero .card-body { flex-direction: column; justify-content: center; gap: 4px; }
 
-  .input-card { height: 168px; flex: none; }
+  .input-card { height: 172px; flex: none; }
 
   /* ---------- EQ ---------- */
-  .eq-card .card-body { flex-direction: column; justify-content: space-between; align-items: stretch; gap: 6px; }
-  #eq-curve { display: block; border-radius: 3px; }
+  .eq-card .card-body { flex-direction: column; justify-content: space-between; align-items: stretch; gap: 4px; }
+  #eq-curve { display: block; border-radius: 12px; box-shadow: inset 0 1px 4px rgba(0,0,0,0.45), inset 0 -1px 0 rgba(255,255,255,0.06); }
   .eq-knobs { display: flex; justify-content: space-between; }
-  .freq { font-size: 9px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .freq { font-size: 9px; color: var(--gl-color-text-muted); font-variant-numeric: tabular-nums; }
 
-  /* ---------- GR bars ---------- */
-  .with-bar { display: flex; align-items: center; gap: 10px; }
+  .with-bar { display: flex; align-items: center; gap: 8px; }
   .grbar { display: flex; flex-direction: column; align-items: center; gap: 4px; }
   .grbar .label { margin: 0; }
 
-  .heat-caption { font-size: 8px; letter-spacing: 0.1em; color: var(--text-dim); text-align: center; line-height: 1.5; }
-
   /* ---------- Meters ---------- */
-  .meters { padding: 10px 6px; }
+  .meters.card.glass-card { padding: 10px 8px; }
   .meters .card-body { flex-direction: column; justify-content: flex-start; gap: 6px; }
   .meter-labels { display: flex; justify-content: space-between; width: 100%; padding: 0 6px; }
-  .meter-readouts { display: flex; justify-content: space-between; width: 100%; padding: 0 2px; font-size: 9px; font-variant-numeric: tabular-nums; color: var(--text); }
+  .meter-readouts { display: flex; justify-content: space-between; width: 100%; font-size: 10px; font-variant-numeric: tabular-nums; }
 
   /* ---------- Footer ---------- */
   .footer {
-    height: 28px;
-    flex: none;
-    padding: 0 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-top: 1px solid var(--border);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    color: var(--text-dim);
+    height: 32px; flex: none;
+    padding: 0 22px 6px;
+    display: flex; align-items: center; justify-content: space-between;
   }
-  #lim-readout { font-variant-numeric: tabular-nums; color: var(--text); }
-  #lim-readout b { color: var(--text-dim); font-weight: 400; margin-right: 8px; }
+  .footer .left { display: flex; gap: 8px; }
+  .footer .glass-badge { font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
 </style>
 </head>
-<body>
+<body class="glass-bg">
 <div id="plugin-ui">
 
-  <!-- Header -->
   <div class="header">
     <div class="brand">
       <div class="wordmark">RITUAL <span>ANVIL</span></div>
       <div class="subtitle">DRUM BUS FORGE</div>
     </div>
-    <div class="power on" id="bypass-control" title="Power (bypass)">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round">
-        <path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>
-      </svg>
-    </div>
+    <button class="glass-pill power on" id="bypass-control" title="Power (bypass)" aria-label="Power">
+      <svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>
+    </button>
   </div>
 
-  <!-- Body -->
   <div class="body">
-
-    <!-- Left: hero + input -->
     <div class="col-left">
-      <div class="card hero" id="mix_ready-control">
-        <div class="card-title" style="align-self: stretch">MIX READY <span class="note">MACRO</span></div>
+      <div class="card glass-card glass-card--glow hero" id="mix_ready-control">
+        <div class="card-title">Mix Ready <span class="glass-badge glass-badge--primary note">MACRO</span></div>
         <div class="card-body">
-          <canvas id="mix_ready-knob" width="210" height="210"></canvas>
-          <div class="hero-caption">ONE KNOB · RAW KIT → FINISHED BUS<br><span style="color:var(--ember)">EMBER</span> = WHAT THE MACRO ADDS</div>
+          <canvas id="mix_ready-knob" width="220" height="220"></canvas>
+          <div class="caption">ONE KNOB · RAW KIT → FINISHED BUS<br><span style="color:var(--anvil-ember)">EMBER</span> = WHAT THE MACRO ADDS</div>
         </div>
       </div>
 
-      <div class="card input-card">
-        <div class="card-title"><span class="num">01</span>INPUT</div>
+      <div class="card glass-card input-card">
+        <div class="card-title"><span class="glass-badge glass-badge--primary">01</span>Input</div>
         <div class="card-body">
           <div class="control" id="input_gain-control">
             <div class="label">Trim</div>
-            <canvas class="knob" id="input_gain-knob" width="64" height="64"></canvas>
+            <canvas class="knob" id="input_gain-knob" width="66" height="66"></canvas>
             <div class="value" id="input_gain-value"></div>
             <div class="eff" id="input_gain-eff"></div>
           </div>
           <div class="control" id="hpf-control">
             <div class="label">HPF</div>
-            <canvas class="knob" id="hpf-knob" width="64" height="64"></canvas>
+            <canvas class="knob" id="hpf-knob" width="66" height="66"></canvas>
             <div class="value" id="hpf-value"></div>
             <div class="eff" id="hpf-eff"></div>
           </div>
@@ -238,147 +169,108 @@
       </div>
     </div>
 
-    <!-- Center: stages -->
     <div class="col-center">
       <div class="row1">
-        <div class="card">
-          <div class="card-title"><span class="num">02</span>TRANSIENT</div>
+        <div class="card glass-card">
+          <div class="card-title"><span class="glass-badge glass-badge--primary">02</span>Transient</div>
           <div class="card-body">
             <div class="control" id="transient_attack-control">
               <div class="label">Attack</div>
-              <canvas class="knob" id="transient_attack-knob" width="68" height="68"></canvas>
+              <canvas class="knob" id="transient_attack-knob" width="74" height="74"></canvas>
               <div class="value" id="transient_attack-value"></div>
               <div class="eff" id="transient_attack-eff"></div>
             </div>
             <div class="control" id="transient_sustain-control">
               <div class="label">Sustain</div>
-              <canvas class="knob" id="transient_sustain-knob" width="68" height="68"></canvas>
+              <canvas class="knob" id="transient_sustain-knob" width="74" height="74"></canvas>
               <div class="value" id="transient_sustain-value"></div>
               <div class="eff" id="transient_sustain-eff"></div>
             </div>
           </div>
         </div>
 
-        <div class="card eq-card">
-          <div class="card-title"><span class="num">03</span>TONE EQ</div>
+        <div class="card glass-card eq-card">
+          <div class="card-title"><span class="glass-badge glass-badge--primary">03</span>Tone EQ</div>
           <div class="card-body">
-            <canvas id="eq-curve" width="370" height="70"></canvas>
+            <canvas id="eq-curve" width="410" height="78"></canvas>
             <div class="eq-knobs">
-              <div class="control" id="eq_kick-control">
-                <div class="label">Kick</div>
-                <canvas class="knob" id="eq_kick-knob" width="56" height="56"></canvas>
-                <div class="value" id="eq_kick-value"></div>
-                <div class="eff" id="eq_kick-eff"></div>
-                <div class="freq">60 Hz</div>
-              </div>
-              <div class="control" id="eq_box-control">
-                <div class="label">Box</div>
-                <canvas class="knob" id="eq_box-knob" width="56" height="56"></canvas>
-                <div class="value" id="eq_box-value"></div>
-                <div class="eff" id="eq_box-eff"></div>
-                <div class="freq">200 Hz</div>
-              </div>
-              <div class="control" id="eq_snare-control">
-                <div class="label">Snare</div>
-                <canvas class="knob" id="eq_snare-knob" width="56" height="56"></canvas>
-                <div class="value" id="eq_snare-value"></div>
-                <div class="eff" id="eq_snare-eff"></div>
-                <div class="freq">3 kHz</div>
-              </div>
-              <div class="control" id="eq_presence-control">
-                <div class="label">Pres</div>
-                <canvas class="knob" id="eq_presence-knob" width="56" height="56"></canvas>
-                <div class="value" id="eq_presence-value"></div>
-                <div class="eff" id="eq_presence-eff"></div>
-                <div class="freq">8 kHz</div>
-              </div>
-              <div class="control" id="eq_air-control">
-                <div class="label">Air</div>
-                <canvas class="knob" id="eq_air-knob" width="56" height="56"></canvas>
-                <div class="value" id="eq_air-value"></div>
-                <div class="eff" id="eq_air-eff"></div>
-                <div class="freq">12 kHz</div>
-              </div>
+              <div class="control" id="eq_kick-control"><div class="label">Kick</div><canvas class="knob" id="eq_kick-knob" width="60" height="60"></canvas><div class="value" id="eq_kick-value"></div><div class="eff" id="eq_kick-eff"></div><div class="freq">60 Hz</div></div>
+              <div class="control" id="eq_box-control"><div class="label">Box</div><canvas class="knob" id="eq_box-knob" width="60" height="60"></canvas><div class="value" id="eq_box-value"></div><div class="eff" id="eq_box-eff"></div><div class="freq">200 Hz</div></div>
+              <div class="control" id="eq_snare-control"><div class="label">Snare</div><canvas class="knob" id="eq_snare-knob" width="60" height="60"></canvas><div class="value" id="eq_snare-value"></div><div class="eff" id="eq_snare-eff"></div><div class="freq">3 kHz</div></div>
+              <div class="control" id="eq_presence-control"><div class="label">Pres</div><canvas class="knob" id="eq_presence-knob" width="60" height="60"></canvas><div class="value" id="eq_presence-value"></div><div class="eff" id="eq_presence-eff"></div><div class="freq">8 kHz</div></div>
+              <div class="control" id="eq_air-control"><div class="label">Air</div><canvas class="knob" id="eq_air-knob" width="60" height="60"></canvas><div class="value" id="eq_air-value"></div><div class="eff" id="eq_air-eff"></div><div class="freq">12 kHz</div></div>
             </div>
           </div>
         </div>
       </div>
 
       <div class="row2">
-        <div class="card">
-          <div class="card-title"><span class="num">04</span>PUNCH</div>
+        <div class="card glass-card">
+          <div class="card-title"><span class="glass-badge glass-badge--primary">04</span>Punch</div>
           <div class="card-body with-bar">
             <div class="control" id="punch-control">
               <div class="label">Blend</div>
-              <canvas class="knob" id="punch-knob" width="76" height="76"></canvas>
+              <canvas class="knob" id="punch-knob" width="80" height="80"></canvas>
               <div class="value" id="punch-value"></div>
               <div class="eff" id="punch-eff"></div>
             </div>
-            <div class="grbar">
-              <div class="label">GR</div>
-              <canvas id="punch-gr" width="26" height="96"></canvas>
-            </div>
+            <div class="grbar"><div class="label">GR</div><canvas id="punch-gr" width="28" height="100"></canvas></div>
           </div>
         </div>
-
-        <div class="card">
-          <div class="card-title"><span class="num">05</span>HEAT</div>
-          <div class="card-body" style="flex-direction: column; justify-content: center; gap: 2px">
+        <div class="card glass-card">
+          <div class="card-title"><span class="glass-badge glass-badge--primary">05</span>Heat</div>
+          <div class="card-body" style="flex-direction:column;justify-content:center;gap:2px">
             <div class="control" id="heat-control">
               <div class="label">Drive</div>
-              <canvas class="knob" id="heat-knob" width="76" height="76"></canvas>
+              <canvas class="knob" id="heat-knob" width="80" height="80"></canvas>
               <div class="value" id="heat-value"></div>
               <div class="eff" id="heat-eff"></div>
             </div>
-            <div class="heat-caption">HARD · SOFT · TUBE</div>
+            <div class="caption">HARD · SOFT · TUBE</div>
           </div>
         </div>
-
-        <div class="card">
-          <div class="card-title"><span class="num">06</span>WIDTH</div>
-          <div class="card-body" style="flex-direction: column; justify-content: center; gap: 2px">
+        <div class="card glass-card">
+          <div class="card-title"><span class="glass-badge glass-badge--primary">06</span>Width</div>
+          <div class="card-body" style="flex-direction:column;justify-content:center;gap:2px">
             <div class="control" id="width-control">
               <div class="label">Side</div>
-              <canvas class="knob" id="width-knob" width="76" height="76"></canvas>
+              <canvas class="knob" id="width-knob" width="80" height="80"></canvas>
               <div class="value" id="width-value"></div>
               <div class="eff" id="width-eff"></div>
             </div>
-            <div class="heat-caption">SIDE &gt; 200 Hz ONLY</div>
+            <div class="caption">SIDE &gt; 200 Hz ONLY</div>
           </div>
         </div>
-
-        <div class="card">
-          <div class="card-title"><span class="num">07</span>CEILING</div>
+        <div class="card glass-card">
+          <div class="card-title"><span class="glass-badge glass-badge--primary">07</span>Ceiling</div>
           <div class="card-body with-bar">
             <div class="control" id="ceiling-control">
               <div class="label">dBTP</div>
-              <canvas class="knob" id="ceiling-knob" width="76" height="76"></canvas>
+              <canvas class="knob" id="ceiling-knob" width="80" height="80"></canvas>
               <div class="value" id="ceiling-value"></div>
               <div class="eff" id="ceiling-eff"></div>
             </div>
-            <div class="grbar">
-              <div class="label">GR</div>
-              <canvas id="limiter-gr" width="26" height="96"></canvas>
-            </div>
+            <div class="grbar"><div class="label">GR</div><canvas id="limiter-gr" width="28" height="100"></canvas></div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Right: meters -->
-    <div class="card meters">
+    <div class="card glass-card meters">
       <div class="card-body">
         <div class="meter-labels"><span class="label">IN</span><span class="label">OUT</span></div>
-        <canvas id="io-meters" width="62" height="420"></canvas>
+        <canvas id="io-meters" width="66" height="450"></canvas>
         <div class="meter-readouts"><span id="in-readout">-inf</span><span id="out-readout">-inf</span></div>
       </div>
     </div>
   </div>
 
-  <!-- Footer -->
   <div class="footer">
-    <span id="footer-info">RITUALANVIL v0.3.0 · LAT — smp</span>
-    <span id="lim-readout"><b>LIM GR</b>0.0 dB</span>
+    <div class="left">
+      <span class="glass-badge">RITUALANVIL v0.3.0</span>
+      <span class="glass-badge" id="footer-info">LAT — smp</span>
+    </div>
+    <span class="glass-badge" id="lim-readout">LIM GR 0.0 dB</span>
   </div>
 </div>
 

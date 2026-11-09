@@ -1,7 +1,7 @@
 /*
   RitualAnvil: WebView UI controller.
 
-  Binds the approved v1 design (Design/v1-test.html) to the JUCE relays:
+  Binds the approved v2 design (Design/v2-test.html, GlassKit) to the JUCE relays:
     WebSliderRelay       mix_ready, input_gain, hpf, transient_attack,
                          transient_sustain, eq_kick, eq_box, eq_snare,
                          eq_presence, eq_air, punch, heat, width, ceiling
@@ -25,10 +25,50 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 let C = {};
 function loadColors() {
   C = {
-    bg: css("--bg"), hl: css("--surface-hl"), primary: css("--primary"), ember: css("--ember"),
-    danger: css("--danger"), text: css("--text"), dim: css("--text-dim"), border: css("--border"),
-    font: css("--font"),
+    primary: css("--gl-color-primary"), primaryDark: css("--gl-color-primary-dark"),
+    ember: css("--anvil-ember"), well: css("--anvil-well"), danger: css("--anvil-danger"),
+    text: css("--gl-color-text"), dim: css("--gl-color-text-muted"),
+    border: css("--gl-border-medium"), borderStrong: css("--gl-border-strong"),
+    font: css("--gl-font-family"),
   };
+}
+
+/* ---------- glass drawing (v2, GlassKit look; GlassKit has no knob) ---------- */
+const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25;
+const ang = n => A0 + (A1 - A0) * n;
+
+/** amber → ember along the 270° sweep (conic where supported) */
+function arcGradient(ctx, cx, cy) {
+  if (ctx.createConicGradient) {
+    const g = ctx.createConicGradient(A0, cx, cy);
+    g.addColorStop(0, C.primary);
+    g.addColorStop(0.75, C.primaryDark);
+    g.addColorStop(1, C.primaryDark);
+    return g;
+  }
+  return C.primary;
+}
+
+function drawGlassDisc(ctx, cx, cy, r, hover) {
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.35)"; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4;
+  const body = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.45, r * 0.1, cx, cy, r);
+  body.addColorStop(0, "rgba(255,255,255,0.22)");
+  body.addColorStop(1, "rgba(255,255,255,0.06)");
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = body; ctx.fill();
+  ctx.restore();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = hover ? C.borderStrong : C.border;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,0.45)";          // specular rim, top-left
+  ctx.beginPath(); ctx.arc(cx, cy, r - 1.5, Math.PI * 1.05, Math.PI * 1.6); ctx.stroke();
+}
+
+function drawGroove(ctx, cx, cy, r, w) {
+  ctx.lineCap = "round"; ctx.lineWidth = w; ctx.strokeStyle = C.well;
+  ctx.beginPath(); ctx.arc(cx, cy, r, A0, A1); ctx.stroke();
+  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,0.10)";
+  ctx.beginPath(); ctx.arc(cx, cy, r + w / 2, A0, A1); ctx.stroke();
 }
 
 function setupHiDPI(canvas) {
@@ -122,75 +162,65 @@ class Knob {
   render() {
     const { ctx, size: s } = this;
     const norm = this.norm;
-    const cx = s / 2, cy = s / 2, r = s / 2 - 6;
-    const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
-    const ang = n => a0 + (a1 - a0) * n;
-    const av = ang(norm);
+    const cx = s / 2, cy = s / 2, rTrack = s / 2 - 5, rDisc = rTrack - 7;
     const originNorm = this.neutral === undefined ? 0 : this.scaledToNorm(this.neutral);
     const effValue = effOf(this.id, this.value);
     const effNorm = this.scaledToNorm(effValue);
     const hasGhost = Math.abs(effNorm - norm) > 0.002;
     ctx.clearRect(0, 0, s, s);
 
-    // heat glow behind the body
+    // heat glow behind the disc
     if (this.glow) {
       const g = clamp(this.glow(this), 0, 1);
       if (g > 0.001) {
-        const grd = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r + 4);
-        grd.addColorStop(0, `rgba(255,90,31,${0.55 * g})`);
+        const grd = ctx.createRadialGradient(cx, cy, rDisc * 0.3, cx, cy, rTrack + 4);
+        grd.addColorStop(0, `rgba(255,90,31,${0.6 * g})`);
         grd.addColorStop(1, "rgba(255,90,31,0)");
         ctx.fillStyle = grd;
-        ctx.beginPath(); ctx.arc(cx, cy, r + 4, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx, cy, rTrack + 4, 0, Math.PI * 2); ctx.fill();
       }
     }
 
-    // body
-    ctx.beginPath(); ctx.arc(cx, cy, r - 6, 0, Math.PI * 2);
-    ctx.fillStyle = C.hl; ctx.fill();
-    ctx.lineWidth = 1; ctx.strokeStyle = C.border; ctx.stroke();
+    drawGroove(ctx, cx, cy, rTrack, 4);
 
-    // track
-    ctx.lineCap = "round"; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1);
-    ctx.strokeStyle = this.hover || this.dragging ? C.border : C.bg; ctx.stroke();
-
-    // value arc from origin (bipolar knobs start at neutral)
+    // value arc from origin (bipolar knobs start at neutral), amber → ember
     if (Math.abs(norm - originNorm) > 0.002) {
       ctx.save();
-      if (this.dragging) { ctx.shadowColor = C.primary; ctx.shadowBlur = 8; }
-      ctx.beginPath(); ctx.arc(cx, cy, r, ang(Math.min(norm, originNorm)), ang(Math.max(norm, originNorm)));
-      ctx.strokeStyle = C.primary; ctx.stroke();
+      if (this.dragging) { ctx.shadowColor = C.primary; ctx.shadowBlur = 10; }
+      ctx.lineCap = "round"; ctx.lineWidth = 4; ctx.strokeStyle = arcGradient(ctx, cx, cy);
+      ctx.beginPath(); ctx.arc(cx, cy, rTrack, ang(Math.min(norm, originNorm)), ang(Math.max(norm, originNorm))); ctx.stroke();
       ctx.restore();
     }
     if (originNorm > 0.001) {
       const ao = ang(originNorm);
-      ctx.lineWidth = 1; ctx.strokeStyle = C.dim;
+      ctx.lineWidth = 1.5; ctx.lineCap = "round"; ctx.strokeStyle = C.dim;
       ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(ao) * (r + 3), cy + Math.sin(ao) * (r + 3));
-      ctx.lineTo(cx + Math.cos(ao) * (r + 5.5), cy + Math.sin(ao) * (r + 5.5));
+      ctx.moveTo(cx + Math.cos(ao) * (rTrack + 3), cy + Math.sin(ao) * (rTrack + 3));
+      ctx.lineTo(cx + Math.cos(ao) * (rTrack + 5), cy + Math.sin(ao) * (rTrack + 5));
       ctx.stroke();
     }
 
     // macro ghost arc: manual → effective
     if (hasGhost) {
       ctx.save();
-      ctx.shadowColor = C.ember; ctx.shadowBlur = 6;
-      ctx.lineWidth = 3; ctx.lineCap = "butt";
-      ctx.beginPath(); ctx.arc(cx, cy, r, ang(Math.min(norm, effNorm)), ang(Math.max(norm, effNorm)));
-      ctx.strokeStyle = C.ember; ctx.stroke();
+      ctx.shadowColor = C.ember; ctx.shadowBlur = 8;
+      ctx.lineWidth = 4; ctx.lineCap = "butt"; ctx.strokeStyle = C.ember;
+      ctx.beginPath(); ctx.arc(cx, cy, rTrack, ang(Math.min(norm, effNorm)), ang(Math.max(norm, effNorm))); ctx.stroke();
       const ae = ang(effNorm);
-      ctx.beginPath(); ctx.arc(cx + Math.cos(ae) * r, cy + Math.sin(ae) * r, 2.5, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(cx + Math.cos(ae) * rTrack, cy + Math.sin(ae) * rTrack, 3, 0, Math.PI * 2);
       ctx.fillStyle = C.ember; ctx.fill();
       ctx.restore();
     }
 
+    drawGlassDisc(ctx, cx, cy, rDisc, this.hover || this.dragging);
+
     // pointer (manual position)
-    const ri = (r - 6) * 0.35, ro = (r - 6) * 0.72;
-    ctx.lineWidth = 2; ctx.lineCap = "round";
+    const av = ang(norm);
+    ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.strokeStyle = C.text;
     ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(av) * ri, cy + Math.sin(av) * ri);
-    ctx.lineTo(cx + Math.cos(av) * ro, cy + Math.sin(av) * ro);
-    ctx.strokeStyle = C.text; ctx.stroke();
+    ctx.moveTo(cx + Math.cos(av) * rDisc * 0.30, cy + Math.sin(av) * rDisc * 0.30);
+    ctx.lineTo(cx + Math.cos(av) * rDisc * 0.68, cy + Math.sin(av) * rDisc * 0.68);
+    ctx.stroke();
 
     this.valueEl.textContent = this.format(this.value);
     if (this.effEl) {
@@ -222,63 +252,48 @@ class HeroDial {
   }
   render() {
     const { ctx, size: s } = this;
-    const cx = s / 2, cy = s / 2, r = s / 2 - 18;
-    const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
-    const ang = n => a0 + (a1 - a0) * n;
+    const cx = s / 2, cy = s / 2, rTrack = s / 2 - 22, rDisc = rTrack - 16;
     const t = this.norm;
     ctx.clearRect(0, 0, s, s);
 
     for (let i = 0; i <= 10; i++) {
       const n = i / 10, a = ang(n), major = i % 5 === 0;
-      ctx.strokeStyle = t > 0 && n <= t + 1e-6 ? C.text : C.border;
-      ctx.lineWidth = major ? 2 : 1;
+      ctx.strokeStyle = t > 0 && n <= t + 1e-6 ? C.text : "rgba(255,255,255,0.25)";
+      ctx.lineWidth = major ? 2 : 1; ctx.lineCap = "round";
+      const r0 = rTrack + 11, r1 = rTrack + (major ? 18 : 15);
       ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * (r + 9), cy + Math.sin(a) * (r + 9));
-      ctx.lineTo(cx + Math.cos(a) * (r + (major ? 15 : 13)), cy + Math.sin(a) * (r + (major ? 15 : 13)));
+      ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+      ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
       ctx.stroke();
     }
 
-    ctx.beginPath(); ctx.arc(cx, cy, r - 14, 0, Math.PI * 2);
-    ctx.fillStyle = C.hl; ctx.fill();
-    ctx.lineWidth = 1; ctx.strokeStyle = C.border; ctx.stroke();
-
-    ctx.lineCap = "round"; ctx.lineWidth = 10;
-    ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1);
-    ctx.strokeStyle = this.hover || this.dragging ? C.border : C.bg; ctx.stroke();
-
+    drawGroove(ctx, cx, cy, rTrack, 12);
     if (t > 0.002) {
-      // amber → ember along the sweep, drawn as short segments
       ctx.save();
-      ctx.shadowColor = C.ember; ctx.shadowBlur = 4 + 20 * t;
-      ctx.lineCap = "butt";
-      const steps = Math.max(2, Math.ceil(t * 60));
-      for (let i = 0; i < steps; i++) {
-        const n0 = (i / steps) * t, n1 = Math.min(((i + 1) / steps) * t + 0.002, t);
-        const mix = (n0 + n1) / 2;
-        ctx.strokeStyle = `rgb(255,${Math.round(195 - 105 * mix)},${Math.round(31 * mix)})`;
-        ctx.beginPath(); ctx.arc(cx, cy, r, ang(n0), ang(n1)); ctx.stroke();
-      }
+      ctx.shadowColor = C.ember; ctx.shadowBlur = 6 + 22 * t;
+      ctx.lineCap = "round"; ctx.lineWidth = 12; ctx.strokeStyle = arcGradient(ctx, cx, cy);
+      ctx.beginPath(); ctx.arc(cx, cy, rTrack, A0, ang(t)); ctx.stroke();
       ctx.restore();
-      const ae = ang(t);
-      ctx.beginPath(); ctx.arc(cx + Math.cos(ae) * r, cy + Math.sin(ae) * r, 6.5, 0, Math.PI * 2);
-      ctx.fillStyle = C.text; ctx.fill();
     }
+
+    drawGlassDisc(ctx, cx, cy, rDisc, this.hover || this.dragging);
 
     const txt = String(Math.round(this.state.getScaledValue()));
     ctx.textBaseline = "alphabetic";
-    ctx.font = `700 40px ${C.font}`;
+    ctx.font = `700 44px ${C.font}`;
     const tw = ctx.measureText(txt).width;
     ctx.textAlign = "center"; ctx.fillStyle = C.text;
-    ctx.fillText(txt, cx - 6, cy + 10);
-    ctx.font = `400 14px ${C.font}`; ctx.fillStyle = C.dim; ctx.textAlign = "left";
-    ctx.fillText("%", cx - 6 + tw / 2 + 3, cy + 10);
-    ctx.font = `600 9px ${C.font}`; ctx.textAlign = "center";
-    ctx.fillText(t > 0 ? "FORGING" : "RAW", cx, cy + 30);
+    ctx.fillText(txt, cx - 7, cy + 12);
+    ctx.font = `500 15px ${C.font}`; ctx.fillStyle = C.dim; ctx.textAlign = "left";
+    ctx.fillText("%", cx - 7 + tw / 2 + 3, cy + 12);
+    ctx.font = `600 10px ${C.font}`; ctx.textAlign = "center";
+    ctx.fillStyle = t > 0 ? C.ember : C.dim;
+    ctx.fillText(t > 0 ? "FORGING" : "RAW", cx, cy + 32);
   }
 }
 
 /* ---------- formatters (second arg: short form for the effective readout) ---------- */
-const sgn = v => (v > 0.0005 ? "+" : "") + v.toFixed(1);
+const sgn = v => { const r = Math.abs(v) < 0.05 ? 0 : v; return (r > 0 ? "+" : "") + r.toFixed(1); };   // no "-0.0" from host round-trips
 const fmtDb   = (v, short) => (short ? sgn(v) : `${sgn(v)} dB`);
 const fmtHz   = (v, short) => (short ? `${Math.round(v)}` : `${Math.round(v)} Hz`);
 const fmtPct  = (v, short) => (short ? `${Math.round(v)}` : `${Math.round(v)} %`);
@@ -338,17 +353,17 @@ function setupEQCurve(knobs, mixState) {
 
     const { ctx, w, h } = eqc;
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = C.bg;
-    ctx.beginPath(); ctx.roundRect(0, 0, w, h, 3); ctx.fill();
+    ctx.fillStyle = C.well;
+    ctx.beginPath(); ctx.roundRect(0, 0, w, h, 12); ctx.fill();
     const fx = f => (Math.log10(f / 20) / 3) * w;
-    const RANGE = 15, dy = db => h / 2 - (db / RANGE) * (h / 2 - 4);
+    const RANGE = 15, dy = db => h / 2 - (db / RANGE) * (h / 2 - 6);
 
-    ctx.lineWidth = 1; ctx.strokeStyle = "rgba(58,58,69,0.6)";
+    ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,0.06)";
     [100, 1000, 10000].forEach(f => { ctx.beginPath(); ctx.moveTo(fx(f) + 0.5, 0); ctx.lineTo(fx(f) + 0.5, h); ctx.stroke(); });
-    ctx.strokeStyle = C.border;
-    ctx.beginPath(); ctx.moveTo(0, dy(0) + 0.5); ctx.lineTo(w, dy(0) + 0.5); ctx.stroke();
-    ctx.fillStyle = C.dim; ctx.font = `8px ${C.font}`; ctx.textAlign = "left"; ctx.textBaseline = "top";
-    [[100, "100"], [1000, "1k"], [10000, "10k"]].forEach(([f, l]) => ctx.fillText(l, fx(f) + 3, 3));
+    ctx.strokeStyle = "rgba(255,255,255,0.14)";
+    ctx.beginPath(); ctx.moveTo(8, dy(0) + 0.5); ctx.lineTo(w - 8, dy(0) + 0.5); ctx.stroke();
+    ctx.fillStyle = C.dim; ctx.font = `9px ${C.font}`; ctx.textAlign = "left"; ctx.textBaseline = "top";
+    [[100, "100"], [1000, "1k"], [10000, "10k"]].forEach(([f, l]) => ctx.fillText(l, fx(f) + 4, 5));
 
     const N = 160;
     const path = vals => {
@@ -360,14 +375,14 @@ function setupEQCurve(knobs, mixState) {
       return pts;
     };
     const trace = pts => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); };
-    const stroke = (pts, color) => { trace(pts); ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke(); };
+    const stroke = (pts, color, width = 2) => { trace(pts); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke(); };
 
     const manualPts = path(manual);
     if (macroOn) {
       const effPts = path(eff);
       trace(effPts); ctx.lineTo(w, dy(0)); ctx.lineTo(0, dy(0)); ctx.closePath();
-      ctx.fillStyle = "rgba(255,90,31,0.10)"; ctx.fill();
-      stroke(manualPts, "rgba(255,195,0,0.55)");
+      ctx.fillStyle = "rgba(255,90,31,0.12)"; ctx.fill();
+      stroke(manualPts, "rgba(255,195,0,0.55)", 1.5);
       stroke(effPts, C.ember);
     } else {
       stroke(manualPts, C.primary);
@@ -417,20 +432,22 @@ function setupMeters(ceilingKnob) {
     const xs = [4, w - 4 - bw];
     const y = db => bot - mPos(db) * mh;
 
-    ctx.fillStyle = C.dim; ctx.font = `8px ${C.font}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = C.dim; ctx.font = `9px ${C.font}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     [0, -3, -6, -12, -24, -36, -48].forEach(db => ctx.fillText(String(db), w / 2, y(db)));
 
+    const fill = ctx.createLinearGradient(0, bot, 0, top);
+    fill.addColorStop(0, C.primary); fill.addColorStop(1, C.primaryDark);
     [[mIn, hIn], [mOut, hOut]].forEach(([lvl, hold], i) => {
       const x = xs[i];
-      ctx.fillStyle = C.bg;
-      ctx.beginPath(); ctx.roundRect(x, top, bw, mh, 2); ctx.fill();
+      ctx.fillStyle = C.well;
+      ctx.beginPath(); ctx.roundRect(x, top, bw, mh, 8); ctx.fill();
       if (lvl > M_MIN) {
-        const yl = y(lvl), y3 = y(-3);
-        ctx.fillStyle = C.primary;
-        ctx.fillRect(x + 2, Math.max(yl, y3), bw - 4, bot - Math.max(yl, y3) - 2);
-        if (yl < y3) { ctx.fillStyle = C.danger; ctx.fillRect(x + 2, yl, bw - 4, y3 - yl); }
+        const yl = y(lvl), y3 = y(-3), yb = Math.max(yl, y3);
+        ctx.fillStyle = fill;
+        ctx.beginPath(); ctx.roundRect(x + 3, yb, bw - 6, Math.max(0, bot - 3 - yb), 5); ctx.fill();
+        if (yl < y3) { ctx.fillStyle = C.danger; ctx.fillRect(x + 3, yl, bw - 6, y3 - yl); }
       }
-      if (hold > M_MIN) { ctx.fillStyle = C.text; ctx.fillRect(x + 2, y(hold) - 0.5, bw - 4, 1); }
+      if (hold > M_MIN) { ctx.fillStyle = C.text; ctx.fillRect(x + 3, y(hold) - 0.5, bw - 6, 1); }
     });
 
     const yc = y(ceilingKnob.value);
@@ -442,15 +459,15 @@ function setupMeters(ceilingKnob) {
     const { ctx, w, h } = m;
     ctx.clearRect(0, 0, w, h);
     const bw = 8, x = 2, top = 2, bot = h - 2;
-    ctx.fillStyle = C.bg;
-    ctx.beginPath(); ctx.roundRect(x, top, bw, bot - top, 2); ctx.fill();
+    ctx.fillStyle = C.well;
+    ctx.beginPath(); ctx.roundRect(x, top, bw, bot - top, 4); ctx.fill();
     const frac = clamp(grDb / maxDb, 0, 1);
     if (frac > 0.001) {
       ctx.fillStyle = color;
-      ctx.fillRect(x + 1.5, top + 1, bw - 3, (bot - top - 2) * frac);
+      ctx.beginPath(); ctx.roundRect(x + 2, top + 2, bw - 4, (bot - top - 4) * frac, 2); ctx.fill();
     }
     ctx.fillStyle = C.dim; ctx.font = `8px ${C.font}`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-    [0, maxDb / 2, maxDb].forEach(d => ctx.fillText(d === 0 ? "0" : `-${d}`, x + bw + 3, top + 4 + (bot - top - 8) * (d / maxDb)));
+    [0, maxDb / 2, maxDb].forEach(d => ctx.fillText(d === 0 ? "0" : `-${d}`, x + bw + 4, top + 4 + (bot - top - 8) * (d / maxDb)));
   }
 
   function frame(now) {
@@ -468,10 +485,24 @@ function setupMeters(ceilingKnob) {
     const fmtLvl = v => (v <= M_MIN ? "-inf" : v.toFixed(1));
     inRO.textContent = fmtLvl(hIn);
     outRO.textContent = fmtLvl(hOut);
-    limRO.innerHTML = `<b>LIM GR</b>${(-gL).toFixed(1)} dB`;
+    limRO.textContent = `LIM GR ${(-gL).toFixed(1)} dB`;
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+}
+
+/* =====================================================================
+ * Living forge: the aurora's ember glow follows effective Heat + Mix Ready.
+ * Only on a >= 2 % move: changing the page background re-renders every
+ * backdrop-filter above it.
+ * ===================================================================== */
+let lastForge = -1;
+function updateForge() {
+  const g = clamp(0.5 * effOf("heat", 0) / 20 + 0.5 * effOf("mix_ready", 0) / 100, 0, 1);
+  if (Math.abs(g - lastForge) < 0.02) return;
+  lastForge = g;
+  document.body.style.setProperty("--gl-bg-warm-glow", `rgba(255, 90, 31, ${(0.10 + 0.22 * g).toFixed(3)})`);
+  document.body.style.setProperty("--gl-bg-aurora-1", `rgba(255, 90, 31, ${(0.20 + 0.14 * g).toFixed(3)})`);
 }
 
 /* =====================================================================
@@ -507,12 +538,13 @@ function init() {
     meter = e;
     if (Number.isFinite(e.lat) && e.lat !== lastLat) {
       lastLat = e.lat;
-      document.getElementById("footer-info").textContent = `RITUALANVIL v0.3.0 · LAT ${e.lat} smp`;
+      document.getElementById("footer-info").textContent = `LAT ${e.lat} smp`;
     }
     Object.values(knobs).forEach(k => {
       if (!prev || prev[k.id] !== e.eff?.[k.id]) k.render();
     });
     drawEQ();
+    updateForge();
   });
 
   console.log("RitualAnvil WebView UI initialised", window.__JUCE__.__mock ? "(mock backend)" : "(JUCE backend)");
