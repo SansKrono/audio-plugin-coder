@@ -84,6 +84,14 @@ RitualComp76AudioProcessor::RitualComp76AudioProcessor()
     ratioParam   = apvts.getRawParameterValue (ParameterIDs::ratio);
     bypassParam  = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParameterIDs::bypass));
     jassert (inputParam && outputParam && attackParam && releaseParam && ratioParam && bypassParam);
+
+    // Report latency from construction: some hosts read it before prepareToPlay().
+    // The polyphase IIR latency depends only on the filter design, not the sample rate.
+    juce::dsp::Oversampling<float> probe (2, oversamplingOrder,
+                                          juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, true);
+    probe.initProcessing (1);
+    latencySamples = (int) std::lround (probe.getLatencyInSamples());
+    setLatencySamples (latencySamples);
 }
 
 bool RitualComp76AudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -121,6 +129,8 @@ void RitualComp76AudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     transformer.prepare (osRate);
     compressor.prepare (osRate);
     dcBlocker.prepare (osRate);
+    classADrive.reset (osRate, 0.010);
+    classADrive.setCurrentAndTargetValue (1.0f);
     classA.setDrive (1.0f);
 
     dryDelay.setMaximumDelayInSamples (latencySamples + 1);
@@ -166,10 +176,14 @@ void RitualComp76AudioProcessor::processWetOversampled (juce::dsp::AudioBlock<fl
     // FET cell + feedback detector (+ FET distortion)
     lastBlockGrDb = juce::jmax (lastBlockGrDb, compressor.process (ptrs, numChannels, numSamples));
 
-    // Class-A output amplifier, then remove DC from the asymmetric stages
-    for (int ch = 0; ch < numChannels; ++ch)
-        for (int n = 0; n < numSamples; ++n)
+    // Class-A output amplifier (drive glides on All-mode switches), then remove DC
+    for (int n = 0; n < numSamples; ++n)
+    {
+        if (classADrive.isSmoothing())
+            classA.setDrive (classADrive.getNextValue());
+        for (int ch = 0; ch < numChannels; ++ch)
             ptrs[ch][n] = dcBlocker.process (ch, classA.process (ptrs[ch][n]));
+    }
 }
 
 void RitualComp76AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -195,7 +209,7 @@ void RitualComp76AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     settings.releaseStep = juce::jlimit (ParameterRanges::stepMin, ParameterRanges::stepMax, releaseParam->load());
     settings.ratio       = (RatioMode) juce::jlimit (0, (int) RatioMode::All, juce::roundToInt (ratioParam->load()));
     compressor.setSettings (settings);
-    classA.setDrive (settings.ratio == RatioMode::All ? allModeClassADrive : 1.0f);
+    classADrive.setTargetValue (settings.ratio == RatioMode::All ? allModeClassADrive : 1.0f);
 
     lastBlockGrDb = 0.0f;
     float* const* data = buffer.getArrayOfWritePointers();

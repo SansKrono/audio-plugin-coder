@@ -227,10 +227,12 @@ int main()
         const double fs = 48000.0;
         const int block = 480;
         RitualComp76AudioProcessor p;
+        const auto latencyAtLoad = p.getLatencySamples();
         p.setPlayConfigDetails (2, 2, fs, block);
         p.prepareToPlay (fs, block);
         const auto latency = p.getLatencySamples();
         check (latency > 0 && latency < 64, "reports oversampling latency (samples)", latency, 10, 64);
+        near ("latency already reported before prepareToPlay", latencyAtLoad, latency, 0.0);
 
         auto setParam = [&] (const char* id, float value)
         {
@@ -295,6 +297,155 @@ int main()
         p2.setStateInformation (state.getData(), (int) state.getSize());
         near ("state restore: attack", p2.apvts.getRawParameterValue (ParameterIDs::attack)->load(), 6.5, 0.01);
         near ("state restore: ratio = All", p2.apvts.getRawParameterValue (ParameterIDs::ratio)->load(), (double) RatioMode::All, 0.0);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Phase 4.1.3: polish / edge cases
+    // ---------------------------------------------------------------------------------
+    struct Harness
+    {
+        RitualComp76AudioProcessor p;
+        juce::MidiBuffer midi;
+        double fs; int block; int channels;
+        double phase = 0.0;
+
+        Harness (double sampleRate, int blockSize, int numChannels = 2) : fs (sampleRate), block (blockSize), channels (numChannels)
+        {
+            if (numChannels == 1)
+                p.setBusesLayout ({ { juce::AudioChannelSet::mono() }, { juce::AudioChannelSet::mono() } });
+            p.setPlayConfigDetails (numChannels, numChannels, fs, block);
+            p.prepareToPlay (fs, block);
+        }
+        void set (const char* id, float v) { auto* prm = p.apvts.getParameter (id); prm->setValueNotifyingHost (prm->convertTo0to1 (v)); }
+
+        // Feed a 1 kHz sine of peak `amp` for `seconds`, in blocks of `blockSize` (default: prepared size)
+        Vec run (float amp, double seconds, int blockSize = 0)
+        {
+            const int bs = blockSize > 0 ? blockSize : block;
+            const auto total = (size_t) (seconds * fs);
+            Vec out; out.reserve (total);
+            juce::AudioBuffer<float> buf (channels, bs);
+            const auto inc = juce::MathConstants<double>::twoPi * 1000.0 / fs;
+            while (out.size() < total)
+            {
+                for (int n = 0; n < bs; ++n)
+                {
+                    const auto x = amp * (float) std::sin (phase); phase += inc;
+                    for (int ch = 0; ch < channels; ++ch) buf.setSample (ch, n, x);
+                }
+                p.processBlock (buf, midi);
+                for (int n = 0; n < bs; ++n) out.push_back (buf.getSample (0, n));
+            }
+            return out;
+        }
+    };
+
+    // Click metric: worst sample-to-sample step relative to the local (1 ms) peak.
+    // A clean 1 kHz sine at 48 kHz scores 2*sin(pi/48) = 0.1308 regardless of level.
+    auto clickScore = [] (const Vec& x, size_t from, size_t to)
+    {
+        double worst = 0.0;
+        const size_t win = 48;
+        for (size_t i = std::max<size_t> (from, win); i < std::min (to, x.size()); ++i)
+        {
+            float local = 0.0f;
+            for (size_t k = i - win; k <= std::min (i + win, x.size() - 1); ++k) local = juce::jmax (local, std::abs (x[k]));
+            if (local > 1.0e-4f) worst = std::max (worst, (double) std::abs (x[i] - x[i - 1]) / local);
+        }
+        return worst;
+    };
+    const double cleanSine = 2.0 * std::sin (juce::MathConstants<double>::pi / 48.0);
+
+    std::printf ("\n== Click-free switching (4.1.3), 48 kHz, 1 kHz sine, ~7 dB GR ==\n");
+    {
+        Harness h (48000.0, 256);
+        h.set (ParameterIDs::input, -12.0f);
+        h.set (ParameterIDs::attack, 3.0f);
+        auto out = h.run (0.25f, 1.0);
+        const auto base = clickScore (out, out.size() - 9600, out.size());
+        near ("steady-state click score (sanity: ~clean sine)", base, cleanSine, 0.03);
+
+        struct Step { const char* label; const char* id; float value; };
+        const Step steps[] = {
+            { "ratio 4 -> All",        ParameterIDs::ratio,  (float) RatioMode::All },
+            { "ratio All -> Out",      ParameterIDs::ratio,  (float) RatioMode::Out },
+            { "ratio Out -> 20",       ParameterIDs::ratio,  (float) RatioMode::R20 },
+            { "ratio 20 -> 4",         ParameterIDs::ratio,  (float) RatioMode::R4 },
+            { "bypass on",             ParameterIDs::bypass, 1.0f },
+            { "bypass off",            ParameterIDs::bypass, 0.0f },
+        };
+        for (const auto& s : steps)
+        {
+            h.set (s.id, s.value);
+            auto seg = h.run (0.25f, 0.3);
+            char label[96]; std::snprintf (label, sizeof label, "%s: click score within 1.6x clean", s.label);
+            atMost (label, clickScore (seg, 0, seg.size()), cleanSine * 1.6);
+        }
+    }
+
+    std::printf ("\n== Edge cases (4.1.3) ==\n");
+    {
+        // Block size 1 vs 512 must produce the same audio (host-independent behaviour)
+        Harness a (48000.0, 512), b (48000.0, 512);
+        for (auto* hh : { &a, &b }) { hh->set (ParameterIDs::input, -6.0f); hh->set (ParameterIDs::ratio, (float) RatioMode::All); }
+        auto outA = a.run (0.3f, 0.2);
+        auto outB = b.run (0.3f, 0.2, 1);
+        double maxDiff = 0.0;
+        for (size_t i = 0; i < std::min (outA.size(), outB.size()); ++i) maxDiff = std::max (maxDiff, (double) std::abs (outA[i] - outB[i]));
+        atMost ("1-sample blocks == 512-sample blocks (max abs diff)", maxDiff, 1.0e-4);
+
+        // Sample-rate change: re-prepare, latency follows, compression consistent
+        auto grAt = [] (double fs)
+        {
+            Harness hh (fs, 256);
+            hh.set (ParameterIDs::input, -12.0f);
+            hh.run (0.25f, 1.0);
+            hh.p.popGainReductionDb();
+            hh.run (0.25f, 0.2);
+            return std::make_pair (hh.p.popGainReductionDb(), hh.p.getLatencySamples());
+        };
+        const auto [gr44, lat44] = grAt (44100.0);
+        const auto [gr96, lat96] = grAt (96000.0);
+        near ("GR consistent across 44.1k / 96k (dB difference)", gr96 - gr44, 0.0, 0.75);
+        check (lat44 > 0 && lat96 > 0, "latency reported at 44.1k and 96k", lat96, lat44, 64);
+
+        // Re-prepare same instance at a new rate (host SR change) stays healthy
+        Harness c (44100.0, 256);
+        c.p.prepareToPlay (96000.0, 1024);
+        c.fs = 96000.0;
+        auto outC = c.run (0.25f, 0.1, 1024);
+        bool finite = true; for (auto v : outC) finite &= std::isfinite (v);
+        check (finite, "re-prepare 44.1k -> 96k @1024: output finite", 1, 1, 0);
+
+        // Mono layout
+        Harness m (48000.0, 256, 1);
+        auto outM = m.run (0.25f, 0.2);
+        float peakM = 0.0f; for (auto v : outM) peakM = juce::jmax (peakM, std::abs (v));
+        check (std::isfinite (peakM) && peakM > 0.01f, "mono in/out processes", peakM, 0.25, 0.25);
+
+        // Silence in -> exact silence out (no DC / denormal residue)
+        Harness z (48000.0, 256);
+        auto outZ = z.run (0.0f, 0.5);
+        float peakZ = 0.0f; for (auto v : outZ) peakZ = juce::jmax (peakZ, std::abs (v));
+        atMost ("silence in -> silence out (peak)", peakZ, 1.0e-9);
+    }
+
+    std::printf ("\n== Gain-staging calibration (defaults: IN -24, OUT -24, 4:1) ==\n");
+    {
+        auto levelThrough = [&] (float peakDbfs)
+        {
+            Harness hh (48000.0, 256);
+            const auto amp = juce::Decibels::decibelsToGain (peakDbfs);
+            auto out = hh.run (amp, 1.5);
+            Vec tail (out.end() - 4800, out.end());
+            return std::make_pair (juce::Decibels::gainToDecibels ((float) toneMag (tail, 1000.0, 48000.0)) - peakDbfs, hh.p.popGainReductionDb());
+        };
+        const auto [g30, gr30] = levelThrough (-30.0f);
+        near ("-30 dBFS sine: unity gain through colour stages (dB)", g30, 0.0, 0.25);
+        near ("-30 dBFS sine: no gain reduction (dB)", gr30, 0.0, 0.05);
+        const auto [g6, gr6] = levelThrough (-6.0f);
+        near ("-6 dBFS sine (4 dB over thr): ~3 dB GR at 4:1", gr6, 3.0, 0.75);
+        near ("-6 dBFS sine: output level change = -GR (dB)", g6, -gr6, 0.5);
     }
 
     std::printf ("\n== CPU (stereo, 48 kHz, 512-sample blocks, All mode, 4x OS) ==\n");

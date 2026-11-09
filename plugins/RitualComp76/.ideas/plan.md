@@ -24,11 +24,11 @@
 - [x] CPU check: target < 3% single instance @ 48 kHz, 4× OS (measured 1.2%)
 
 ### Phase 2.1.3: Polish
-- [ ] Click-free ratio switching (≈10 ms crossfade), bypass crossfade with latency-matched dry path
-- [ ] Edge cases: sample-rate change, block size 1, silence/denormals, -∞ input/output
-- [ ] State save/restore (APVTS XML), preset defaults
-- [ ] Calibration pass: tune GR curve, release feel, All-mode by ear against reference behavior
-- [ ] pluginval / test integration
+- [x] Click-free ratio switching (≈10 ms crossfade), bypass crossfade with latency-matched dry path
+- [x] Edge cases: sample-rate change, block size 1, silence/denormals, -∞ input/output
+- [x] State save/restore (APVTS XML), preset defaults
+- [ ] Calibration pass: objective gain-staging/GR checks done; by-ear tuning of GR curve, release feel, All-mode still pending (needs listening)
+- [x] pluginval / test integration
 
 ## Dependencies
 

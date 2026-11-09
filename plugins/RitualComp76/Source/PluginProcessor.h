@@ -73,6 +73,7 @@ private:
     rc76::InputTransformer transformer;
     FetCompressor compressor;
     rc76::ClassAStage classA;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> classADrive;   // runs at the oversampled rate
     rc76::DcBlocker dcBlocker;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> inputGain, outputGain, bypassMix;

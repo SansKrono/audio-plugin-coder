@@ -50,7 +50,10 @@ public:
 
     /** Gain reduction actually applied (dB, >= 0), including the All-mode bump. */
     float getCurrentGainReductionDb() const noexcept { return appliedGrDb; }
-    bool isAllMode() const noexcept { return allMode; }
+    bool isAllMode() const noexcept { return targetAllness > 0.5f; }
+
+    /** Jump curve parameters to their targets (no glide). Called by prepare(). */
+    void snapToTargets() noexcept;
 
     // Knob-step -> time mappings (exponential, matching the UI readouts)
     static float attackSecondsFromStep (float step) noexcept;   // 800 µs .. 20 µs
@@ -81,7 +84,12 @@ private:
     float grSlow = 0.0f;            // 40 ms average of GR (All-mode bump detector)
     float appliedGrDb = 0.0f;       // GR actually applied (loop GR + All-mode bump)
 
+    // Curve parameters: targets set per block, current values glide per sample (click-free switching)
+    bool  active = true;
+    float targetRatio = 4.0f, targetThresholdDb = -10.0f, targetKneeDb = 6.0f;
+    float targetAllness = 0.0f, targetFetAmount = 0.0f;
+    float ratio = 4.0f, thresholdDb = -10.0f, kneeDb = 6.0f;
+    float allness = 0.0f;           // 0 = normal ratios, 1 = all-buttons-in behaviour
     float fetAmount = 0.0f;         // 2nd-harmonic amount per 10 dB GR
-    bool allMode = false;
-    RatioCurve curve { 4.0f, -10.0f, 6.0f, true };
+    float glideCoeff = 1.0f;
 };

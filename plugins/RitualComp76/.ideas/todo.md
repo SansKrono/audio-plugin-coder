@@ -18,7 +18,8 @@
 ## Phase 4: CODE (/impl)
 - [x] 2.1.1 Core processing (APVTS, attenuators, feedback detector, ballistics, gain computer, Out mode, meter atomics)
 - [x] 2.1.2 Character (4× OS, transformer, FET distortion, class-A stage, program-dependent release, All mode)
-- [ ] 2.1.3 Polish (click-free switching, bypass crossfade, state, calibration, pluginval)
+- [x] 2.1.3 Polish (click-free switching, bypass crossfade, state, objective calibration, pluginval)
+- [ ] By-ear calibration in a DAW (saturation onset, FET H2 amount, All-mode bump, release feel)
 - [x] Port v1-test.html → WebUI, wire JUCE relays (sliders, ratio combo, meter_mode combo, bypass toggle)
 - [x] Native → JS meter event (GR + VU level, ~30–60 Hz)
 
